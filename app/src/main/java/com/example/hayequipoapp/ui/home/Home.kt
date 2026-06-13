@@ -28,6 +28,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import com.example.hayequipoapp.ui.groups.FriendGroupListScreen
+import com.example.hayequipoapp.ui.matches.MatchListScreen
+import com.example.hayequipoapp.ui.players.PlayerListScreen
+import com.example.hayequipoapp.ui.venues.VenueListScreen
 
 // ─── ViewModel ────────────────────────────────────────────
 @HiltViewModel
@@ -102,10 +108,22 @@ fun HomeScreen(navController: NavController) {
             }
         }
     ) { padding ->
-        HayEquipoNavHost(
-            navController     = innerNav,
-            startDestination  = Routes.HOME,
-        )
+        NavHost(navController = innerNav, startDestination = Routes.HOME) {
+            composable(Routes.HOME)        { HomeDashboard(navController) }
+            composable(Routes.MATCH_LIST)  { MatchListScreen(
+                onMatchClick = { navController.navigate(Routes.matchDetail(it)) },
+                onNewMatch   = { navController.navigate(Routes.MATCH_FORM) }
+            ) }
+            composable(Routes.PLAYER_LIST) { PlayerListScreen(
+                onPlayerClick = { navController.navigate(Routes.playerProfile(it)) }
+            ) }
+            composable(Routes.GROUP_LIST)  { FriendGroupListScreen(
+                onGroupClick = { navController.navigate(Routes.groupDetail(it)) }
+            ) }
+            composable(Routes.VENUE_LIST)  { VenueListScreen(
+                onVenueClick = { navController.navigate(Routes.venueDetail(it)) }
+            ) }
+        }
     }
 }
 
