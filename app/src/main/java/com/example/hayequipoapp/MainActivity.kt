@@ -1,47 +1,36 @@
 package com.example.hayequipoapp
 
+import android.app.Application
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
-import com.example.hayequipoapp.ui.theme.HayequipoappTheme
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.compose.rememberNavController
+import com.example.hayequipoapp.ui.auth.AuthViewModel
+import com.example.hayequipoapp.ui.navigation.HayEquipoNavHost
+import com.example.hayequipoapp.ui.navigation.Routes
+import com.example.hayequipoapp.ui.theme.HayEquipoTheme
+import dagger.hilt.android.AndroidEntryPoint
+import dagger.hilt.android.HiltAndroidApp
 
+@HiltAndroidApp
+class HayEquipoApplication : Application()
+
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
         setContent {
-            HayequipoappTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Greeting(
-                        name = "Android",
-                        modifier = Modifier.padding(innerPadding)
-                    )
-                }
+            HayEquipoTheme {
+                val authViewModel: AuthViewModel = hiltViewModel()
+                val navController = rememberNavController()
+                val startDestination = if (authViewModel.isLoggedIn) Routes.HOME else Routes.LOGIN
+
+                HayEquipoNavHost(
+                    navController    = navController,
+                    startDestination = startDestination
+                )
             }
         }
-    }
-}
-
-@Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
-}
-
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    HayequipoappTheme {
-        Greeting("Android")
     }
 }
