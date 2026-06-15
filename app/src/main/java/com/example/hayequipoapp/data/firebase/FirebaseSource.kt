@@ -39,11 +39,25 @@ class FirebaseSource @Inject constructor(
     // ─── Sports ───────────────────────────────────────────
 
     fun getSports(): Flow<List<Sport>> = sports
-        .whereEqualTo("isActive", true)
+        .whereEqualTo("active", true)
         .asFlow()
 
     suspend fun getSportById(sportId: String): Sport? =
         sports.document(sportId).get().await().toObject(Sport::class.java)
+
+    suspend fun createSport(sport: Sport): String {
+        val ref = sports.document()
+        ref.set(sport.copy(id = ref.id)).await()
+        return ref.id
+    }
+
+    suspend fun updateSport(sport: Sport) {
+        sports.document(sport.id).set(sport).await()
+    }
+
+    suspend fun deleteSport(sportId: String) {
+        sports.document(sportId).delete().await()
+    }
 
     // ─── Venues ───────────────────────────────────────────
 

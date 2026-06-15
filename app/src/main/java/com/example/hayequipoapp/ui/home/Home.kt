@@ -112,7 +112,8 @@ fun HomeScreen(navController: NavController) {
             composable(Routes.HOME)        { HomeDashboard(navController) }
             composable(Routes.MATCH_LIST)  { MatchListScreen(
                 onMatchClick = { navController.navigate(Routes.matchDetail(it)) },
-                onNewMatch   = { navController.navigate(Routes.MATCH_FORM) }
+                onNewMatch   = { navController.navigate(Routes.MATCH_FORM) },
+                onSportsClick  = { navController.navigate(Routes.SPORT_LIST) }
             ) }
             composable(Routes.PLAYER_LIST) { PlayerListScreen(
                 onPlayerClick = { navController.navigate(Routes.playerProfile(it)) }

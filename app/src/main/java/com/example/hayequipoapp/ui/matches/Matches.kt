@@ -29,6 +29,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+import com.example.hayequipoapp.domain.repository.SportRepository
+import com.example.hayequipoapp.data.model.Sport
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SportsSoccer
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.Alignment
+
 // ─── List ViewModel ───────────────────────────────────────
 @HiltViewModel
 class MatchListViewModel @Inject constructor(
@@ -86,11 +94,23 @@ class MatchDetailViewModel @Inject constructor(
 @HiltViewModel
 class MatchFormViewModel @Inject constructor(
     private val matchRepository: MatchRepository,
-    private val auth: FirebaseAuth          // ← se agrega esto
+    private val auth: FirebaseAuth,
+    private val sportRepository: SportRepository
 ) : ViewModel() {
 
     private val _saved = MutableStateFlow<UiState<String>?>(null)
     val saved = _saved.asStateFlow()
+
+    private val _sports = MutableStateFlow<UiState<List<Sport>>>(UiState.Loading)
+    val sports = _sports.asStateFlow()
+
+    fun loadSports() {                                                                 // ← NUEVO
+        viewModelScope.launch {
+            sportRepository.getSports().collect {
+                _sports.value = UiState.Success(it)
+            }
+        }
+    }
 
     fun createMatch(
         title: String,
@@ -130,12 +150,22 @@ class MatchFormViewModel @Inject constructor(
 fun MatchListScreen(
     onMatchClick: (String) -> Unit,
     onNewMatch:   () -> Unit,
+    onSportsClick: () -> Unit,
     viewModel: MatchListViewModel = hiltViewModel()
 ) {
     val state by viewModel.matches.collectAsState()
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Partidos") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Partidos") },
+                actions = {
+                    IconButton(onClick = onSportsClick) {
+                        Icon(Icons.Filled.SportsSoccer, contentDescription = "Deportes")
+                    }
+                }
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(onClick = onNewMatch) {
                 Icon(Icons.Filled.Add, contentDescription = "Nuevo partido")
@@ -258,6 +288,7 @@ private fun MatchDetailContent(
 @Composable
 fun MatchFormScreen(
     onBack: () -> Unit,
+    onManageSports: () -> Unit,
     viewModel: MatchFormViewModel = hiltViewModel()
 ) {
     val saved by viewModel.saved.collectAsState()
@@ -267,10 +298,16 @@ fun MatchFormScreen(
     var duration      by remember { mutableStateOf("60") }
     var playersNeeded by remember { mutableStateOf("10") }
     var price         by remember { mutableStateOf("0") }
+    var sportExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(saved) {
         if (saved is UiState.Success) onBack()
     }
+
+    val sportsState by viewModel.sports.collectAsState()
+    val sportList = (sportsState as? UiState.Success)?.data ?: emptyList()
+
+    LaunchedEffect(Unit) { viewModel.loadSports() }
 
     Scaffold(
         topBar = {
@@ -293,8 +330,42 @@ fun MatchFormScreen(
         ) {
             OutlinedTextField(value = title, onValueChange = { title = it },
                 label = { Text("Título del partido") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = sportId, onValueChange = { sportId = it },
-                label = { Text("ID del deporte") }, modifier = Modifier.fillMaxWidth())
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                ExposedDropdownMenuBox(
+                    expanded = sportExpanded,
+                    onExpandedChange = { sportExpanded = it },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    OutlinedTextField(
+                        value = sportList.firstOrNull { it.id == sportId }?.name
+                            ?: if (sportId.isBlank()) "" else sportId,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Deporte") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = sportExpanded) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor()
+                    )
+                    ExposedDropdownMenu(expanded = sportExpanded, onDismissRequest = { sportExpanded = false }) {
+                        if (sportList.isEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text("No hay deportes") },
+                                onClick = { sportExpanded = false }
+                            )
+                        } else {
+                            sportList.forEach { sport ->
+                                DropdownMenuItem(
+                                    text = { Text(sport.name) },
+                                    onClick = { sportId = sport.id; sportExpanded = false }
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.width(4.dp))
+                IconButton(onClick = onManageSports) {
+                    Icon(Icons.Filled.Settings, contentDescription = "Gestionar deportes")
+                }
+            }
             OutlinedTextField(value = venueId, onValueChange = { venueId = it },
                 label = { Text("ID de la sede") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = duration, onValueChange = { duration = it },
