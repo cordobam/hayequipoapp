@@ -14,6 +14,10 @@ import kotlinx.coroutines.flow.Flow
 interface SportRepository {
     fun getSports(): Flow<List<Sport>>
     suspend fun getSportById(sportId: String): Sport?
+    suspend fun createSport(sport: Sport): Result<String>
+    suspend fun updateSport(sport: Sport): Result<Unit>
+    suspend fun deleteSport(sportId: String): Result<Unit>
+
 }
 
 interface VenueRepository {

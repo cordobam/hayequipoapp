@@ -7,6 +7,7 @@ import com.example.hayequipoapp.data.model.MatchInvitation
 import com.example.hayequipoapp.data.model.MatchStat
 import com.example.hayequipoapp.data.model.Player
 import com.example.hayequipoapp.data.model.PlayerReview
+import com.example.hayequipoapp.data.model.Sport
 import com.example.hayequipoapp.data.model.Venue
 import com.example.hayequipoapp.domain.repository.*
 import javax.inject.Inject
@@ -14,6 +15,10 @@ import javax.inject.Inject
 class SportRepositoryImpl @Inject constructor(private val source: FirebaseSource) : SportRepository {
     override fun getSports() = source.getSports()
     override suspend fun getSportById(sportId: String) = source.getSportById(sportId)
+    override suspend fun createSport(sport: Sport) = runCatching { source.createSport(sport) }
+    override suspend fun updateSport(sport: Sport) = runCatching { source.updateSport(sport) }
+    override suspend fun deleteSport(sportId: String) = runCatching { source.deleteSport(sportId) }
+
 }
 
 class VenueRepositoryImpl @Inject constructor(private val source: FirebaseSource) : VenueRepository {

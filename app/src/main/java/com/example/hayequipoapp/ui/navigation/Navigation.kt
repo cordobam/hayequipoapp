@@ -15,6 +15,7 @@ import com.example.hayequipoapp.ui.matches.MatchFormScreen
 import com.example.hayequipoapp.ui.matches.MatchListScreen
 import com.example.hayequipoapp.ui.players.PlayerListScreen
 import com.example.hayequipoapp.ui.players.PlayerProfileScreen
+import com.example.hayequipoapp.ui.sports.SportFormScreen
 import com.example.hayequipoapp.ui.sports.SportListScreen
 import com.example.hayequipoapp.ui.venues.VenueDetailScreen
 import com.example.hayequipoapp.ui.venues.VenueListScreen
@@ -23,6 +24,7 @@ object Routes {
     const val LOGIN          = "login"
     const val HOME           = "home"
     const val SPORT_LIST     = "sports"
+    const val SPORT_FORM     = "sports/form?sportId={sportId}"
     const val VENUE_LIST     = "venues"
     const val VENUE_DETAIL   = "venues/{venueId}"
     const val MATCH_LIST     = "matches"
@@ -37,6 +39,7 @@ object Routes {
     fun matchDetail(matchId: String)   = "matches/$matchId"
     fun playerProfile(playerId: String) = "players/$playerId"
     fun groupDetail(groupId: String)   = "groups/$groupId"
+    fun sportForm(sportId: String = "") = if (sportId.isBlank()) "sports/form" else "sports/form?sportId=$sportId"
 }
 
 @Composable
@@ -57,6 +60,17 @@ fun HayEquipoNavHost(navController: NavHostController, startDestination: String)
             SportListScreen(navController = navController)
         }
 
+        composable(
+            route = Routes.SPORT_FORM,
+            arguments = listOf(navArgument("sportId") {
+                type = NavType.StringType
+                defaultValue = ""
+            })
+        ) { back ->
+            val sportId = back.arguments?.getString("sportId") ?: ""
+            SportFormScreen(sportId = sportId, onBack = { navController.popBackStack() })
+        }
+
         composable(Routes.VENUE_LIST) {
             VenueListScreen(onVenueClick = { navController.navigate(Routes.venueDetail(it)) })
         }
@@ -72,7 +86,8 @@ fun HayEquipoNavHost(navController: NavHostController, startDestination: String)
         composable(Routes.MATCH_LIST) {
             MatchListScreen(
                 onMatchClick = { navController.navigate(Routes.matchDetail(it)) },
-                onNewMatch   = { navController.navigate(Routes.MATCH_FORM) }
+                onNewMatch   = { navController.navigate(Routes.MATCH_FORM) },
+                onSportsClick = { navController.navigate(Routes.SPORT_LIST) }
             )
         }
 
@@ -85,7 +100,10 @@ fun HayEquipoNavHost(navController: NavHostController, startDestination: String)
         }
 
         composable(Routes.MATCH_FORM) {
-            MatchFormScreen(onBack = { navController.popBackStack() })
+            MatchFormScreen(
+                onBack = { navController.popBackStack() },
+                onManageSports = { navController.navigate(Routes.SPORT_LIST) }
+            )
         }
 
         composable(Routes.PLAYER_LIST) {

@@ -16,7 +16,7 @@ data class Sport(
     val scoringUnit: String = "goles",   // "goles" | "puntos" | "sets"
     val durationMinutes: Int = 40,
     val iconUrl: String = "",
-    val isActive: Boolean = true
+    val active: Boolean = true
 )
 
 // ─── Venue ────────────────────────────────────────────────
