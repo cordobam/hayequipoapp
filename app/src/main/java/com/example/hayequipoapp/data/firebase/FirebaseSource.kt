@@ -111,6 +111,10 @@ class FirebaseSource @Inject constructor(
         players.document(player.id).set(player).await()
     }
 
+    suspend fun deletePlayer(playerId: String) {
+        players.document(playerId).delete().await()
+    }
+
     // ─── FriendGroups ─────────────────────────────────────
 
     fun getFriendGroupsByPlayer(playerId: String): Flow<List<FriendGroup>> =

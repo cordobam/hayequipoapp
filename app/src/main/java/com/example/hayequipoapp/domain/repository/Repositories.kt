@@ -36,6 +36,7 @@ interface PlayerRepository {
     suspend fun getPlayerByUid(uid: String): Player?
     suspend fun createPlayer(player: Player): Result<String>
     suspend fun updatePlayer(player: Player): Result<Unit>
+    suspend fun deletePlayer(playerId: String): Result<Unit>
 }
 
 interface FriendGroupRepository {
