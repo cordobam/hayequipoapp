@@ -33,6 +33,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.ui.text.input.KeyboardType
 
 // ─── List ViewModel ───────────────────────────────────────
 @HiltViewModel
@@ -101,7 +108,84 @@ class PlayerProfileViewModel @Inject constructor(
             }
         }
     }
+
+    fun deletePlayer() {
+        viewModelScope.launch {
+            playerRepository.deletePlayer(playerId)
+            _player.value = UiState.Error("Eliminado")
+        }
+    }
 }
+// ─── Edit ViewModel ───────────────────────────────────────
+@HiltViewModel
+class EditPlayerViewModel @Inject constructor(
+    private val playerRepository: PlayerRepository
+) : ViewModel() {
+
+    var name by mutableStateOf("")
+    var phone by mutableStateOf("")
+    var photoUrl by mutableStateOf("")
+    var position by mutableStateOf("")
+    var skillLevel by mutableStateOf("3")
+    var isAvailable by mutableStateOf(true)
+    var showReviews by mutableStateOf(true)
+    var preferredSportsText by mutableStateOf("")
+
+    private val _isEditing = MutableStateFlow(false)
+    val isEditing = _isEditing.asStateFlow()
+
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading = _isLoading.asStateFlow()
+
+    private val _saveState = MutableStateFlow<UiState<String>?>(null)
+    val saveState = _saveState.asStateFlow()
+
+    fun loadPlayer(playerId: String) {
+        if (playerId.isBlank()) return
+        viewModelScope.launch {
+            _isLoading.value = true
+            _isEditing.value = true
+            try {
+                val player = playerRepository.getPlayerById(playerId)
+                if (player != null) {
+                    name = player.name
+                    phone = player.phone
+                    photoUrl = player.photoUrl
+                    position = player.position
+                    skillLevel = player.skillLevel.toString()
+                    isAvailable = player.isAvailable
+                    showReviews = player.showReviews
+                    preferredSportsText = player.preferredSports.joinToString(", ")
+                }
+            } catch (_: Exception) { }
+            _isLoading.value = false
+        }
+    }
+
+    fun save(playerId: String) {
+        viewModelScope.launch {
+            _saveState.value = UiState.Loading
+            val player = Player(
+                id = playerId,
+                name = name.trim(),
+                phone = phone.trim(),
+                photoUrl = photoUrl.trim(),
+                position = position.trim(),
+                skillLevel = skillLevel.toIntOrNull() ?: 3,
+                isAvailable = isAvailable,
+                showReviews = showReviews,
+                preferredSports = preferredSportsText.split(",")
+                    .map { it.trim() }.filter { it.isNotBlank() }
+            )
+            val result = playerRepository.updatePlayer(player)
+            result.fold(
+                onSuccess = { _saveState.value = UiState.Success(playerId) },
+                onFailure = { e -> _saveState.value = UiState.Error(e.message ?: "Error al guardar") }
+            )
+        }
+    }
+}
+
 
 // ─── PlayerListScreen ─────────────────────────────────────
 @OptIn(ExperimentalMaterial3Api::class)
@@ -154,11 +238,19 @@ fun PlayerListScreen(
 fun PlayerProfileScreen(
     playerId: String,
     onBack:   () -> Unit,
+    onEdit:   () -> Unit,
     viewModel: PlayerProfileViewModel = hiltViewModel()
 ) {
     val playerState  by viewModel.player.collectAsState()
     val reviewsState by viewModel.reviews.collectAsState()
     val stats        by viewModel.stats.collectAsState()
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(playerState) {
+        if (playerState is UiState.Error && (playerState as UiState.Error).message == "Eliminado") {
+            onBack()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -168,13 +260,21 @@ fun PlayerProfileScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = "Volver")
                     }
+                },
+                actions = {
+                    IconButton(onClick = onEdit) {
+                        Icon(Icons.Filled.Edit, contentDescription = "Editar")
+                    }
                 }
             )
         }
     ) { padding ->
         when (playerState) {
             is UiState.Loading -> LoadingScreen()
-            is UiState.Error   -> ErrorScreen((playerState as UiState.Error).message)
+            is UiState.Error -> {
+                val msg = (playerState as UiState.Error).message
+                if (msg != "Eliminado") ErrorScreen(msg)
+            }
             is UiState.Success -> {
                 val player = (playerState as UiState.Success).data
                 LazyColumn(
@@ -204,10 +304,41 @@ fun PlayerProfileScreen(
                             else -> item { CircularProgressIndicator() }
                         }
                     }
+                    item {
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = { showDeleteDialog = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            )
+                        ) {
+                            Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Eliminar cuenta")
+                        }
+                    }
                 }
             }
             else -> {}
         }
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Eliminar cuenta") },
+            text = { Text("¿Eliminar esta cuenta permanentemente?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deletePlayer()
+                    showDeleteDialog = false
+                }) { Text("Eliminar", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancelar") }
+            }
+        )
     }
 }
 
@@ -309,6 +440,132 @@ fun PlayerCard(player: Player, onClick: () -> Unit) {
             }
             if (player.isAvailable) {
                 Text("Disponible", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
+            }
+        }
+    }
+}
+
+// ─── EditPlayerScreen ─────────────────────────────────────
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EditPlayerScreen(
+    playerId: String,
+    onBack: () -> Unit,
+    viewModel: EditPlayerViewModel = hiltViewModel()
+) {
+    val isEditing by viewModel.isEditing.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
+    val saveState by viewModel.saveState.collectAsState()
+
+    LaunchedEffect(playerId) {
+        viewModel.loadPlayer(playerId)
+    }
+
+    LaunchedEffect(saveState) {
+        if (saveState is UiState.Success) onBack()
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(if (isEditing) "Editar perfil" else "Nuevo jugador") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "Volver")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        if (isLoading) {
+            LoadingScreen()
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = viewModel.name,
+                    onValueChange = { viewModel.name = it },
+                    label = { Text("Nombre *") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = viewModel.phone,
+                    onValueChange = { viewModel.phone = it },
+                    label = { Text("Teléfono") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = viewModel.photoUrl,
+                    onValueChange = { viewModel.photoUrl = it },
+                    label = { Text("URL de foto") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = viewModel.position,
+                    onValueChange = { viewModel.position = it },
+                    label = { Text("Posición") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = viewModel.skillLevel,
+                    onValueChange = { viewModel.skillLevel = it },
+                    label = { Text("Nivel (1-5)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = viewModel.preferredSportsText,
+                    onValueChange = { viewModel.preferredSportsText = it },
+                    label = { Text("Deportes favoritos (separados por coma)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Disponible", modifier = Modifier.weight(1f))
+                    Switch(checked = viewModel.isAvailable, onCheckedChange = { viewModel.isAvailable = it })
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Mostrar reseñas", modifier = Modifier.weight(1f))
+                    Switch(checked = viewModel.showReviews, onCheckedChange = { viewModel.showReviews = it })
+                }
+
+                val errorMsg = (saveState as? UiState.Error)?.message
+                if (errorMsg != null) {
+                    Text(errorMsg, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                }
+
+                Spacer(Modifier.height(8.dp))
+
+                Button(
+                    onClick = { viewModel.save(playerId) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = saveState !is UiState.Loading && viewModel.name.isNotBlank()
+                ) {
+                    if (saveState is UiState.Loading) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(if (isEditing) "Guardar cambios" else "Crear jugador")
+                }
             }
         }
     }

@@ -37,6 +37,7 @@ class PlayerRepositoryImpl @Inject constructor(private val source: FirebaseSourc
     override suspend fun getPlayerByUid(uid: String) = source.getPlayerByUid(uid)
     override suspend fun createPlayer(player: Player) = runCatching { source.createPlayer(player) }
     override suspend fun updatePlayer(player: Player) = runCatching { source.updatePlayer(player) }
+    override suspend fun deletePlayer(playerId: String) = runCatching { source.deletePlayer(playerId) }
 }
 
 class FriendGroupRepositoryImpl @Inject constructor(private val source: FirebaseSource) : FriendGroupRepository {
