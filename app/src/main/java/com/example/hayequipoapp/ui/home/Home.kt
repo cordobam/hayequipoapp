@@ -108,22 +108,33 @@ fun HomeScreen(navController: NavController) {
             }
         }
     ) { padding ->
-        NavHost(navController = innerNav, startDestination = Routes.HOME) {
-            composable(Routes.HOME)        { HomeDashboard(navController) }
-            composable(Routes.MATCH_LIST)  { MatchListScreen(
-                onMatchClick = { navController.navigate(Routes.matchDetail(it)) },
-                onNewMatch   = { navController.navigate(Routes.MATCH_FORM) },
-                onSportsClick  = { navController.navigate(Routes.SPORT_LIST) }
-            ) }
-            composable(Routes.PLAYER_LIST) { PlayerListScreen(
-                onPlayerClick = { navController.navigate(Routes.playerProfile(it)) }
-            ) }
-            composable(Routes.GROUP_LIST)  { FriendGroupListScreen(
-                onGroupClick = { navController.navigate(Routes.groupDetail(it)) }
-            ) }
-            composable(Routes.VENUE_LIST)  { VenueListScreen(
-                onVenueClick = { navController.navigate(Routes.venueDetail(it)) }
-            ) }
+        Box(modifier = Modifier.padding(padding)) {
+            NavHost(navController = innerNav, startDestination = Routes.HOME) {
+                composable(Routes.HOME) { HomeDashboard(navController) }
+                composable(Routes.MATCH_LIST) {
+                    MatchListScreen(
+                        onMatchClick = { navController.navigate(Routes.matchDetail(it)) },
+                        onNewMatch = { navController.navigate(Routes.MATCH_FORM) },
+                        onSportsClick = { navController.navigate(Routes.SPORT_LIST) }
+                    )
+                }
+                composable(Routes.PLAYER_LIST) {
+                    PlayerListScreen(
+                        onPlayerClick = { navController.navigate(Routes.playerProfile(it)) }
+                    )
+                }
+                composable(Routes.GROUP_LIST) {
+                    FriendGroupListScreen(
+                        onGroupClick = { navController.navigate(Routes.groupDetail(it)) }
+                    )
+                }
+                composable(Routes.VENUE_LIST) {
+                    VenueListScreen(
+                        onVenueClick = { navController.navigate(Routes.venueDetail(it)) },
+                        onNewVenue = { navController.navigate(Routes.venueForm()) }
+                    )
+                }
+            }
         }
     }
 }

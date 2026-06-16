@@ -18,6 +18,7 @@ import com.example.hayequipoapp.ui.players.PlayerProfileScreen
 import com.example.hayequipoapp.ui.sports.SportFormScreen
 import com.example.hayequipoapp.ui.sports.SportListScreen
 import com.example.hayequipoapp.ui.venues.VenueDetailScreen
+import com.example.hayequipoapp.ui.venues.VenueFormScreen
 import com.example.hayequipoapp.ui.venues.VenueListScreen
 
 object Routes {
@@ -34,12 +35,15 @@ object Routes {
     const val PLAYER_PROFILE = "players/{playerId}"
     const val GROUP_LIST     = "groups"
     const val GROUP_DETAIL   = "groups/{groupId}"
+    const val VENUE_FORM = "venues/form?venueId={venueId}"
 
     fun venueDetail(venueId: String)   = "venues/$venueId"
     fun matchDetail(matchId: String)   = "matches/$matchId"
     fun playerProfile(playerId: String) = "players/$playerId"
     fun groupDetail(groupId: String)   = "groups/$groupId"
     fun sportForm(sportId: String = "") = if (sportId.isBlank()) "sports/form" else "sports/form?sportId=$sportId"
+    fun venueForm(venueId: String = "") =
+        if (venueId.isBlank()) "venues/form" else "venues/form?venueId=$venueId"
 }
 
 @Composable
@@ -72,7 +76,10 @@ fun HayEquipoNavHost(navController: NavHostController, startDestination: String)
         }
 
         composable(Routes.VENUE_LIST) {
-            VenueListScreen(onVenueClick = { navController.navigate(Routes.venueDetail(it)) })
+            VenueListScreen(
+                onVenueClick = { navController.navigate(Routes.venueDetail(it)) },
+                onNewVenue   = { navController.navigate(Routes.venueForm()) }
+            )
         }
 
         composable(
@@ -80,7 +87,22 @@ fun HayEquipoNavHost(navController: NavHostController, startDestination: String)
             arguments = listOf(navArgument("venueId") { type = NavType.StringType })
         ) { back ->
             val venueId = back.arguments?.getString("venueId") ?: return@composable
-            VenueDetailScreen(venueId = venueId, onBack = { navController.popBackStack() })
+            VenueDetailScreen(
+                venueId = venueId,
+                onBack  = { navController.popBackStack() },
+                onEdit  = { navController.navigate(Routes.venueForm(venueId)) }
+            )
+        }
+
+        composable(
+            route = Routes.VENUE_FORM,
+            arguments = listOf(navArgument("venueId") {
+                type = NavType.StringType
+                defaultValue = ""
+            })
+        ) { back ->
+            val venueId = back.arguments?.getString("venueId") ?: ""
+            VenueFormScreen(venueId = venueId, onBack = { navController.popBackStack() })
         }
 
         composable(Routes.MATCH_LIST) {
