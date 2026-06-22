@@ -34,13 +34,16 @@ import com.example.hayequipoapp.ui.groups.FriendGroupListScreen
 import com.example.hayequipoapp.ui.matches.MatchListScreen
 import com.example.hayequipoapp.ui.players.PlayerListScreen
 import com.example.hayequipoapp.ui.venues.VenueListScreen
+import com.example.hayequipoapp.data.session.SessionManager
+
 
 // ─── ViewModel ────────────────────────────────────────────
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val matchRepository: MatchRepository,
     private val invitationRepository: MatchInvitationRepository,
-    private val auth: FirebaseAuth
+    private val auth: FirebaseAuth,
+    val sessionManager: SessionManager
 ) : ViewModel() {
 
     private val _upcomingMatches = MutableStateFlow<UiState<List<Match>>>(UiState.Loading)
@@ -85,25 +88,35 @@ fun HomeScreen(navController: NavController) {
     val innerNav = rememberNavController()
     val backStack by innerNav.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
+    val viewModel: HomeViewModel = hiltViewModel()
+    val currentPlayer by viewModel.sessionManager.currentPlayer.collectAsState()
+    val isAdmin = currentPlayer?.role == "admin"
+
+    val filteredNavItems = remember(navItems, isAdmin) {
+        if (isAdmin) navItems
+        else navItems.filter { it.route !in listOf(Routes.VENUE_LIST) }
+    }
 
     Scaffold(
         bottomBar = {
-            NavigationBar {
-                navItems.forEach { item ->
-                    NavigationBarItem(
-                        selected  = currentRoute == item.route,
-                        onClick   = {
-                            if (currentRoute != item.route) {
-                                innerNav.navigate(item.route) {
-                                    popUpTo(Routes.HOME) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState   = true
+            if (filteredNavItems.size > 1) {
+                NavigationBar {
+                    filteredNavItems.forEach { item ->
+                        NavigationBarItem(
+                            selected  = currentRoute == item.route,
+                            onClick   = {
+                                if (currentRoute != item.route) {
+                                    innerNav.navigate(item.route) {
+                                        popUpTo(Routes.HOME) { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState   = true
+                                    }
                                 }
-                            }
-                        },
-                        icon  = { Icon(item.icon, contentDescription = item.label) },
-                        label = { Text(item.label) }
-                    )
+                            },
+                            icon  = { Icon(item.icon, contentDescription = item.label) },
+                            label = { Text(item.label) }
+                        )
+                    }
                 }
             }
         }
@@ -111,29 +124,23 @@ fun HomeScreen(navController: NavController) {
         Box(modifier = Modifier.padding(padding)) {
             NavHost(navController = innerNav, startDestination = Routes.HOME) {
                 composable(Routes.HOME) { HomeDashboard(navController) }
-                composable(Routes.MATCH_LIST) {
-                    MatchListScreen(
-                        onMatchClick = { navController.navigate(Routes.matchDetail(it)) },
-                        onNewMatch = { navController.navigate(Routes.MATCH_FORM) },
-                        onSportsClick = { navController.navigate(Routes.SPORT_LIST) }
-                    )
-                }
-                composable(Routes.PLAYER_LIST) {
-                    PlayerListScreen(
-                        onPlayerClick = { navController.navigate(Routes.playerProfile(it)) }
-                    )
-                }
-                composable(Routes.GROUP_LIST) {
-                    FriendGroupListScreen(
-                        onGroupClick = { navController.navigate(Routes.groupDetail(it)) }
-                    )
-                }
-                composable(Routes.VENUE_LIST) {
-                    VenueListScreen(
-                        onVenueClick = { navController.navigate(Routes.venueDetail(it)) },
-                        onNewVenue = { navController.navigate(Routes.venueForm()) }
-                    )
-                }
+                composable(Routes.MATCH_LIST) { MatchListScreen(
+                    onMatchClick   = { navController.navigate(Routes.matchDetail(it)) },
+                    onNewMatch     = { navController.navigate(Routes.MATCH_FORM) },
+                    onSportsClick  = if (isAdmin) { { navController.navigate(Routes.SPORT_LIST) } }
+                    else { {} }
+                ) }
+                composable(Routes.PLAYER_LIST) { PlayerListScreen(
+                    onPlayerClick = { navController.navigate(Routes.playerProfile(it)) }
+                ) }
+                composable(Routes.GROUP_LIST) { FriendGroupListScreen(
+                    onGroupClick = { navController.navigate(Routes.groupDetail(it)) }
+                ) }
+                composable(Routes.VENUE_LIST) { VenueListScreen(
+                    onVenueClick = { navController.navigate(Routes.venueDetail(it)) },
+                    onNewVenue   = if (isAdmin) { { navController.navigate(Routes.venueForm()) } }
+                    else { {} }
+                ) }
             }
         }
     }

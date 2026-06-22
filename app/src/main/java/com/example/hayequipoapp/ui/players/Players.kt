@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.ui.text.input.KeyboardType
+import com.example.hayequipoapp.data.session.SessionManager
 
 // ─── List ViewModel ───────────────────────────────────────
 @HiltViewModel
@@ -72,7 +73,8 @@ class PlayerProfileViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val playerRepository: PlayerRepository,
     private val reviewRepository: PlayerReviewRepository,
-    private val statRepository: PlayerStatRepository
+    private val statRepository: PlayerStatRepository,
+    val sessionManager: SessionManager
 ) : ViewModel() {
 
     private val playerId: String = checkNotNull(savedStateHandle["playerId"])
@@ -244,6 +246,8 @@ fun PlayerProfileScreen(
     val playerState  by viewModel.player.collectAsState()
     val reviewsState by viewModel.reviews.collectAsState()
     val stats        by viewModel.stats.collectAsState()
+    val currentPlayer by viewModel.sessionManager.currentPlayer.collectAsState()
+    val isOwnProfile = currentPlayer?.id == playerId
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(playerState) {
@@ -262,8 +266,10 @@ fun PlayerProfileScreen(
                     }
                 },
                 actions = {
+                    if (isOwnProfile) {
                     IconButton(onClick = onEdit) {
                         Icon(Icons.Filled.Edit, contentDescription = "Editar")
+                        }
                     }
                 }
             )
@@ -304,6 +310,7 @@ fun PlayerProfileScreen(
                             else -> item { CircularProgressIndicator() }
                         }
                     }
+                    if (isOwnProfile) {
                     item {
                         Spacer(Modifier.height(8.dp))
                         OutlinedButton(
@@ -316,6 +323,7 @@ fun PlayerProfileScreen(
                             Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Text("Eliminar cuenta")
+                            }
                         }
                     }
                 }

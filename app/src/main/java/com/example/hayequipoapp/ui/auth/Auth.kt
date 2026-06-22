@@ -40,12 +40,33 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.example.hayequipoapp.ui.theme.GreenField
 import kotlinx.coroutines.launch
 
+import com.example.hayequipoapp.data.session.SessionManager
+
 
 @HiltViewModel
 class AuthViewModel @Inject constructor(
     private val auth: FirebaseAuth,
-    private val playerRepository: PlayerRepository
+    private val playerRepository: PlayerRepository,
+    private val sessionManager: SessionManager
 ) : ViewModel() {
+
+    init {
+        loadExistingPlayer()
+    }
+
+    private fun loadExistingPlayer() {
+        val firebaseUser = auth.currentUser ?: return
+        viewModelScope.launch {
+            try {
+                val player = playerRepository.getPlayerByUid(firebaseUser.uid)
+                if (player != null) {
+                    sessionManager.setPlayer(player)
+                }
+            } catch (e: Exception) {
+                    Log.e("AuthViewModel", "Error loading existing player",e)
+            }
+        }
+    }
 
     private val _authState = MutableStateFlow<UiState<Unit>>(UiState.Idle)
     val authState = _authState.asStateFlow()
@@ -70,6 +91,9 @@ class AuthViewModel @Inject constructor(
                         photoUrl = user.photoUrl?.toString() ?: ""
                     )
                     playerRepository.createPlayer(newPlayer)
+                    sessionManager.setPlayer(existing ?: newPlayer)
+                } else {
+                    sessionManager.setPlayer(existing)
                 }
                 _authState.value = UiState.Success(Unit)
             } catch (e: Exception) {
@@ -83,7 +107,11 @@ class AuthViewModel @Inject constructor(
             _authState.value = UiState.Loading
             try {
                 auth.signInWithEmailAndPassword(email, password).await()
+                val user = auth.currentUser ?: return@launch
+                val player = playerRepository.getPlayerByUid(user.uid)
+                if (player != null) sessionManager.setPlayer(player)
                 _authState.value = UiState.Success(Unit)
+
             } catch (e: Exception) {
                 _authState.value = UiState.Error(e.message ?: "Error al iniciar sesión")
             }
@@ -98,6 +126,7 @@ class AuthViewModel @Inject constructor(
                 val user = result.user ?: throw Exception("Usuario nulo")
                 val newPlayer = Player(uid = user.uid, name = name, email = email)
                 playerRepository.createPlayer(newPlayer)
+                sessionManager.setPlayer(newPlayer)
                 _authState.value = UiState.Success(Unit)
             } catch (e: Exception) {
                 _authState.value = UiState.Error(e.message ?: "Error al registrarse")
@@ -107,6 +136,7 @@ class AuthViewModel @Inject constructor(
 
     fun signOut() {
         auth.signOut()
+        sessionManager.clear()
     }
 }
 
