@@ -57,7 +57,8 @@ data class Player(
     val isAvailable: Boolean = true,
     val showReviews: Boolean = true,
     val fcmToken: String = "",
-    val createdAt: Timestamp? = null
+    val createdAt: Timestamp? = null,
+    val role: String = "player"
 )
 
 // ─── FriendGroup ──────────────────────────────────────────

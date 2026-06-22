@@ -36,11 +36,13 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SportsSoccer
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.Alignment
+import com.example.hayequipoapp.data.session.SessionManager
 
 // ─── List ViewModel ───────────────────────────────────────
 @HiltViewModel
 class MatchListViewModel @Inject constructor(
-    private val matchRepository: MatchRepository
+    private val matchRepository: MatchRepository,
+    val sessionManager: SessionManager
 ) : ViewModel() {
 
     private val _matches = MutableStateFlow<UiState<List<Match>>>(UiState.Loading)
@@ -154,14 +156,18 @@ fun MatchListScreen(
     viewModel: MatchListViewModel = hiltViewModel()
 ) {
     val state by viewModel.matches.collectAsState()
+    val currentPlayer by viewModel.sessionManager.currentPlayer.collectAsState()
+    val isAdmin = currentPlayer?.role == "admin"
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Partidos") },
                 actions = {
-                    IconButton(onClick = onSportsClick) {
-                        Icon(Icons.Filled.SportsSoccer, contentDescription = "Deportes")
+                    if (isAdmin) {
+                        IconButton(onClick = onSportsClick) {
+                            Icon(Icons.Filled.SportsSoccer, contentDescription = "Deportes")
+                        }
                     }
                 }
             )

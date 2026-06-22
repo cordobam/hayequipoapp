@@ -31,12 +31,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.example.hayequipoapp.data.session.SessionManager
 
 
 // ─── List ViewModel ───────────────────────────────────────
 @HiltViewModel
 class SportListViewModel @Inject constructor(
-    private val sportRepository: SportRepository
+    private val sportRepository: SportRepository,
+    val sessionManager: SessionManager
 ) : ViewModel() {
 
     private val _sports = MutableStateFlow<UiState<List<Sport>>>(UiState.Loading)
@@ -148,14 +150,18 @@ fun SportListScreen(
     viewModel: SportListViewModel = hiltViewModel()
 ) {
     val state by viewModel.sports.collectAsState()
+    val currentPlayer by viewModel.sessionManager.currentPlayer.collectAsState()
+    val isAdmin = currentPlayer?.role == "admin"
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Deportes") }) },
         floatingActionButton = {
-            FloatingActionButton(onClick = {
-                navController.navigate("sports/form")
-            }) {
-                Icon(Icons.Filled.Add, contentDescription = "Nuevo deporte")
+            if (isAdmin) {
+                FloatingActionButton(onClick = {
+                    navController.navigate("sports/form")
+                }) {
+                    Icon(Icons.Filled.Add, contentDescription = "Nuevo deporte")
+                }
             }
         }
     ) { padding ->
@@ -178,7 +184,8 @@ fun SportListScreen(
                             SportCard(
                                 sport = sport,
                                 onEdit = { navController.navigate("sports/form?sportId=${sport.id}") },
-                                onDelete = { viewModel.deleteSport(sport.id) }
+                                onDelete = { viewModel.deleteSport(sport.id) },
+                                isAdmin = isAdmin     // ← NUEVO
                             )
                         }
                     }
@@ -195,11 +202,12 @@ fun SportListScreen(
 private fun SportCard(
     sport: Sport,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    isAdmin: Boolean      // ← NUEVO parámetro
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
 
-    Card(onClick = onEdit, modifier = Modifier.fillMaxWidth()) {
+    Card(onClick = (if (isAdmin) onEdit else {}) as () -> Unit, modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -213,8 +221,10 @@ private fun SportCard(
                     Text("Anota en ${sport.scoringUnit}", style = MaterialTheme.typography.labelSmall)
                 }
             }
-            IconButton(onClick = { showDeleteDialog = true }) {
-                Icon(Icons.Filled.Delete, contentDescription = "Eliminar", tint = MaterialTheme.colorScheme.error)
+            if (isAdmin) {
+                IconButton(onClick = { showDeleteDialog = true }) {
+                    Icon(Icons.Filled.Delete, contentDescription = "Eliminar", tint = MaterialTheme.colorScheme.error)
+                }
             }
         }
     }

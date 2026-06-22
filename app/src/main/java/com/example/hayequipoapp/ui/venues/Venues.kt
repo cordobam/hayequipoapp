@@ -35,12 +35,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.example.hayequipoapp.data.session.SessionManager
 
 
 // ─── List ViewModel ───────────────────────────────────────
 @HiltViewModel
 class VenueListViewModel @Inject constructor(
-    private val venueRepository: VenueRepository
+    private val venueRepository: VenueRepository,
+    val sessionManager: SessionManager
 ) : ViewModel() {
 
     private val _venues = MutableStateFlow<UiState<List<Venue>>>(UiState.Loading)
@@ -68,7 +70,8 @@ class VenueListViewModel @Inject constructor(
 @HiltViewModel
 class VenueDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    private val venueRepository: VenueRepository
+    private val venueRepository: VenueRepository,
+    val sessionManager: SessionManager
 ) : ViewModel() {
 
     private val venueId: String = checkNotNull(savedStateHandle["venueId"])
@@ -175,12 +178,16 @@ fun VenueListScreen(
     viewModel: VenueListViewModel = hiltViewModel()
 ) {
     val state by viewModel.venues.collectAsState()
+    val currentPlayer by viewModel.sessionManager.currentPlayer.collectAsState()
+    val isAdmin = currentPlayer?.role == "admin"
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Sedes") }) },
         floatingActionButton = {
-            FloatingActionButton(onClick = onNewVenue) {
-                Icon(Icons.Filled.Add, contentDescription = "Nueva sede")
+            if (isAdmin) {
+                FloatingActionButton(onClick = onNewVenue) {
+                    Icon(Icons.Filled.Add, contentDescription = "Nueva sede")
+                }
             }
         }
     ) { padding ->
@@ -204,7 +211,8 @@ fun VenueListScreen(
                             VenueCard(
                                 venue = venue,
                                 onClick = { onVenueClick(venue.id) },
-                                onDelete = { viewModel.deleteVenue(venue.id) }
+                                onDelete = { viewModel.deleteVenue(venue.id) },
+                                isAdmin = isAdmin
                             )
                         }
                     }
@@ -226,6 +234,8 @@ fun VenueDetailScreen(
     viewModel: VenueDetailViewModel = hiltViewModel()
 ) {
     val state by viewModel.venue.collectAsState()
+    val currentPlayer by viewModel.sessionManager.currentPlayer.collectAsState()
+    val isAdmin = currentPlayer?.role == "admin"
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(state) {
@@ -244,11 +254,17 @@ fun VenueDetailScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = onEdit) {
-                        Icon(Icons.Filled.Edit, contentDescription = "Editar")
-                    }
-                    IconButton(onClick = { showDeleteDialog = true }) {
-                        Icon(Icons.Filled.Delete, contentDescription = "Eliminar", tint = MaterialTheme.colorScheme.error)
+                    if (isAdmin) {
+                        IconButton(onClick = onEdit) {
+                            Icon(Icons.Filled.Edit, contentDescription = "Editar")
+                        }
+                        IconButton(onClick = { showDeleteDialog = true }) {
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = "Eliminar",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 }
             )
@@ -459,7 +475,8 @@ private fun VenueDetailContent(venue: Venue, modifier: Modifier = Modifier) {
 fun VenueCard(
     venue: Venue,
     onClick: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    isAdmin: Boolean
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
 
@@ -476,8 +493,10 @@ fun VenueCard(
                     if (venue.pricePerHour > 0) Text("$${venue.pricePerHour}/h", style = MaterialTheme.typography.labelSmall)
                 }
             }
-            IconButton(onClick = { showDeleteDialog = true }) {
-                Icon(Icons.Filled.Delete, contentDescription = "Eliminar", tint = MaterialTheme.colorScheme.error)
+            if (isAdmin) {
+                IconButton(onClick = { showDeleteDialog = true }) {
+                    Icon(Icons.Filled.Delete, contentDescription = "Eliminar", tint = MaterialTheme.colorScheme.error)
+                }
             }
         }
     }
