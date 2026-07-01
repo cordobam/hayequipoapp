@@ -131,7 +131,8 @@ fun HomeScreen(navController: NavController) {
                     else { {} }
                 ) }
                 composable(Routes.PLAYER_LIST) { PlayerListScreen(
-                    onPlayerClick = { navController.navigate(Routes.playerProfile(it)) }
+                    onPlayerClick = { navController.navigate(Routes.playerProfile(it)) },
+                    onProfileClick = { currentPlayer?.id?.let { navController.navigate(Routes.playerProfile(it)) } }
                 ) }
                 composable(Routes.GROUP_LIST) { FriendGroupListScreen(
                     onGroupClick = { navController.navigate(Routes.groupDetail(it)) }

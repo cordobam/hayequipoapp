@@ -45,7 +45,8 @@ import com.example.hayequipoapp.data.session.SessionManager
 // ─── List ViewModel ───────────────────────────────────────
 @HiltViewModel
 class PlayerListViewModel @Inject constructor(
-    private val playerRepository: PlayerRepository
+    private val playerRepository: PlayerRepository,
+    private val sessionManager: SessionManager
 ) : ViewModel() {
 
     private val _players = MutableStateFlow<UiState<List<Player>>>(UiState.Loading)
@@ -61,7 +62,9 @@ class PlayerListViewModel @Inject constructor(
     fun load() {
         viewModelScope.launch {
             playerRepository.getPlayers().collect { list ->
-                _players.value = UiState.Success(list)
+                _players.value = UiState.Success(
+                    list.filter { it.id != sessionManager.currentPlayerId }
+                )
             }
         }
     }
@@ -167,8 +170,12 @@ class EditPlayerViewModel @Inject constructor(
     fun save(playerId: String) {
         viewModelScope.launch {
             _saveState.value = UiState.Loading
-            val player = Player(
-                id = playerId,
+            val existing = playerRepository.getPlayerById(playerId)
+            if (existing == null) {
+                _saveState.value = UiState.Error("Jugador no encontrado")
+                return@launch
+            }
+            val player = existing.copy(
                 name = name.trim(),
                 phone = phone.trim(),
                 photoUrl = photoUrl.trim(),
@@ -194,13 +201,23 @@ class EditPlayerViewModel @Inject constructor(
 @Composable
 fun PlayerListScreen(
     onPlayerClick: (String) -> Unit,
+    onProfileClick: () -> Unit = {},
     viewModel: PlayerListViewModel = hiltViewModel()
 ) {
     val state by viewModel.players.collectAsState()
     val query = viewModel.searchQuery
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Jugadores") }) }
+        topBar = {
+            TopAppBar(
+                title = { Text("Jugadores") },
+                actions = {
+                    IconButton(onClick = onProfileClick) {
+                        Icon(Icons.Filled.Person, contentDescription = "Mi perfil")
+                    }
+                }
+            )
+        }
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
             OutlinedTextField(
@@ -311,6 +328,17 @@ fun PlayerProfileScreen(
                         }
                     }
                     if (isOwnProfile) {
+                    item {
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = onEdit,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Editar perfil")
+                        }
+                    }
                     item {
                         Spacer(Modifier.height(8.dp))
                         OutlinedButton(
