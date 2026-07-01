@@ -30,12 +30,14 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 import com.example.hayequipoapp.domain.repository.SportRepository
+import com.example.hayequipoapp.domain.repository.VenueRepository
 import com.example.hayequipoapp.data.model.Sport
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SportsSoccer
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.Alignment
+import com.example.hayequipoapp.data.model.Venue
 import com.example.hayequipoapp.data.session.SessionManager
 
 // ─── List ViewModel ───────────────────────────────────────
@@ -97,7 +99,8 @@ class MatchDetailViewModel @Inject constructor(
 class MatchFormViewModel @Inject constructor(
     private val matchRepository: MatchRepository,
     private val auth: FirebaseAuth,
-    private val sportRepository: SportRepository
+    private val sportRepository: SportRepository,
+    private val venueRepository: VenueRepository
 ) : ViewModel() {
 
     private val _saved = MutableStateFlow<UiState<String>?>(null)
@@ -106,10 +109,22 @@ class MatchFormViewModel @Inject constructor(
     private val _sports = MutableStateFlow<UiState<List<Sport>>>(UiState.Loading)
     val sports = _sports.asStateFlow()
 
+    private val _venues = MutableStateFlow<UiState<List<Venue>>>(UiState.Loading)
+    val venues = _venues.asStateFlow()
+
     fun loadSports() {                                                                 // ← NUEVO
         viewModelScope.launch {
             sportRepository.getSports().collect {
                 _sports.value = UiState.Success(it)
+            }
+        }
+    }
+
+    fun loadVenues(sportId: String) {
+        viewModelScope.launch {
+            _venues.value = UiState.Loading
+            venueRepository.getVenuesBySport(sportId).collect {
+                _venues.value = UiState.Success(it)
             }
         }
     }
@@ -305,6 +320,7 @@ fun MatchFormScreen(
     var playersNeeded by remember { mutableStateOf("10") }
     var price         by remember { mutableStateOf("0") }
     var sportExpanded by remember { mutableStateOf(false) }
+    var venueExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(saved) {
         if (saved is UiState.Success) onBack()
@@ -313,7 +329,17 @@ fun MatchFormScreen(
     val sportsState by viewModel.sports.collectAsState()
     val sportList = (sportsState as? UiState.Success)?.data ?: emptyList()
 
+    val venuesState by viewModel.venues.collectAsState()
+    val venueList = (venuesState as? UiState.Success)?.data ?: emptyList()
+
     LaunchedEffect(Unit) { viewModel.loadSports() }
+
+    LaunchedEffect(sportId) {
+        if (sportId.isNotBlank()) {
+            venueId = ""
+            viewModel.loadVenues(sportId)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -336,6 +362,8 @@ fun MatchFormScreen(
         ) {
             OutlinedTextField(value = title, onValueChange = { title = it },
                 label = { Text("Título del partido") }, modifier = Modifier.fillMaxWidth())
+
+            // ─── Deporte ─────────────────────────────────────
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 ExposedDropdownMenuBox(
                     expanded = sportExpanded,
@@ -372,8 +400,44 @@ fun MatchFormScreen(
                     Icon(Icons.Filled.Settings, contentDescription = "Gestionar deportes")
                 }
             }
-            OutlinedTextField(value = venueId, onValueChange = { venueId = it },
-                label = { Text("ID de la sede") }, modifier = Modifier.fillMaxWidth())
+
+            // ─── Sede ────────────────────────────────────────
+            ExposedDropdownMenuBox(
+                expanded = venueExpanded,
+                onExpandedChange = { venueExpanded = it },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = venueList.firstOrNull { it.id == venueId }?.name
+                        ?: if (venueId.isBlank()) "" else venueId,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Sede") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = venueExpanded) },
+                    modifier = Modifier.fillMaxWidth().menuAnchor()
+                )
+                ExposedDropdownMenu(expanded = venueExpanded, onDismissRequest = { venueExpanded = false }) {
+                    if (sportId.isBlank()) {
+                        DropdownMenuItem(
+                            text = { Text("Seleccioná un deporte primero") },
+                            onClick = { venueExpanded = false }
+                        )
+                    } else if (venueList.isEmpty()) {
+                        DropdownMenuItem(
+                            text = { Text("No hay sedes para este deporte") },
+                            onClick = { venueExpanded = false }
+                        )
+                    } else {
+                        venueList.forEach { venue ->
+                            DropdownMenuItem(
+                                text = { Text(venue.name) },
+                                onClick = { venueId = venue.id; venueExpanded = false }
+                            )
+                        }
+                    }
+                }
+            }
+
             OutlinedTextField(value = duration, onValueChange = { duration = it },
                 label = { Text("Duración (min)") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = playersNeeded, onValueChange = { playersNeeded = it },
@@ -388,7 +452,7 @@ fun MatchFormScreen(
             Spacer(Modifier.weight(1f))
             Button(
                 onClick = {
-                    viewModel.createMatch(   // ← ya no pide organizerId
+                    viewModel.createMatch(
                         title           = title,
                         sportId         = sportId,
                         venueId         = venueId,

@@ -24,6 +24,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
 import com.example.hayequipoapp.domain.repository.VenueRepository
+import com.example.hayequipoapp.domain.repository.SportRepository
+import com.example.hayequipoapp.data.model.Sport
 import com.example.hayequipoapp.ui.common.EmptyScreen
 import com.example.hayequipoapp.ui.common.ErrorScreen
 import com.example.hayequipoapp.ui.common.LoadingScreen
@@ -36,6 +38,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import com.example.hayequipoapp.data.session.SessionManager
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.filled.ArrowDropDown
 
 
 // ─── List ViewModel ───────────────────────────────────────
@@ -104,7 +108,8 @@ class VenueDetailViewModel @Inject constructor(
 // ─── Form ViewModel ───────────────────────────────────────
 @HiltViewModel
 class VenueFormViewModel @Inject constructor(
-    private val venueRepository: VenueRepository
+    private val venueRepository: VenueRepository,
+    private val sportRepository: SportRepository
 ) : ViewModel() {
 
     var name by mutableStateOf("")
@@ -112,7 +117,7 @@ class VenueFormViewModel @Inject constructor(
     var phone by mutableStateOf("")
     var pricePerHour by mutableStateOf("0")
     var amenitiesText by mutableStateOf("")
-    var sportIdsText by mutableStateOf("")
+    var selectedSportIds by mutableStateOf<List<String>>(emptyList())
 
     private val _isEditing = MutableStateFlow(false)
     val isEditing = _isEditing.asStateFlow()
@@ -122,6 +127,25 @@ class VenueFormViewModel @Inject constructor(
 
     private val _saveState = MutableStateFlow<UiState<String>?>(null)
     val saveState = _saveState.asStateFlow()
+
+    private val _sports = MutableStateFlow<UiState<List<Sport>>>(UiState.Loading)
+    val sports = _sports.asStateFlow()
+
+    fun loadSports() {
+        viewModelScope.launch {
+            sportRepository.getSports().collect {
+                _sports.value = UiState.Success(it)
+            }
+        }
+    }
+
+    fun toggleSport(sportId: String) {
+        selectedSportIds = if (selectedSportIds.contains(sportId)) {
+            selectedSportIds - sportId
+        } else {
+            selectedSportIds + sportId
+        }
+    }
 
     fun loadVenue(venueId: String) {
         if (venueId.isBlank()) return
@@ -136,7 +160,7 @@ class VenueFormViewModel @Inject constructor(
                     phone = venue.phone
                     pricePerHour = if (venue.pricePerHour > 0) venue.pricePerHour.toString() else "0"
                     amenitiesText = venue.amenities.joinToString(", ")
-                    sportIdsText = venue.sportIds.joinToString(", ")
+                    selectedSportIds = venue.sportIds
                 }
             } catch (_: Exception) { }
             _isLoading.value = false
@@ -153,7 +177,7 @@ class VenueFormViewModel @Inject constructor(
                 phone = phone.trim(),
                 pricePerHour = pricePerHour.toDoubleOrNull() ?: 0.0,
                 amenities = amenitiesText.split(",").map { it.trim() }.filter { it.isNotBlank() },
-                sportIds = sportIdsText.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                sportIds = selectedSportIds
             )
             val result = if (venueId.isBlank()) {
                 venueRepository.createVenue(venue)
@@ -314,6 +338,12 @@ fun VenueFormScreen(
     val isEditing by viewModel.isEditing.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val saveState by viewModel.saveState.collectAsState()
+    var showSportDialog by remember { mutableStateOf(false) }
+
+    val sportsState by viewModel.sports.collectAsState()
+    val sportList = (sportsState as? UiState.Success)?.data ?: emptyList()
+
+    LaunchedEffect(Unit) { viewModel.loadSports() }
 
     LaunchedEffect(venueId) {
         viewModel.loadVenue(venueId)
@@ -388,12 +418,63 @@ fun VenueFormScreen(
                 )
 
                 OutlinedTextField(
-                    value = viewModel.sportIdsText,
-                    onValueChange = { viewModel.sportIdsText = it },
-                    label = { Text("IDs de deportes (separados por coma)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+                    value = when {
+                        viewModel.selectedSportIds.isEmpty() -> "Ningún deporte seleccionado"
+                        viewModel.selectedSportIds.size == 1 -> sportList.firstOrNull { it.id == viewModel.selectedSportIds[0] }?.name ?: "1 deporte"
+                        else -> "${viewModel.selectedSportIds.size} deportes seleccionados"
+                    },
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Deportes") },
+                    trailingIcon = {
+                        IconButton(onClick = { showSportDialog = true }) {
+                            Icon(Icons.Filled.ArrowDropDown, contentDescription = "Seleccionar")
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
                 )
+
+                if (showSportDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showSportDialog = false },
+                        title = { Text("Seleccionar deportes") },
+                        text = {
+                            when (sportsState) {
+                                is UiState.Loading -> LoadingScreen()
+                                is UiState.Error -> Text((sportsState as UiState.Error).message)
+                                is UiState.Success -> {
+                                    Column {
+                                        sportList.forEach { sport ->
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable { viewModel.toggleSport(sport.id) }
+                                                    .padding(vertical = 4.dp)
+                                            ) {
+                                                Checkbox(
+                                                    checked = viewModel.selectedSportIds.contains(sport.id),
+                                                    onCheckedChange = { viewModel.toggleSport(sport.id) }
+                                                )
+                                                Spacer(Modifier.width(8.dp))
+                                                Text(sport.name)
+                                            }
+                                        }
+                                        if (sportList.isEmpty()) {
+                                            Text("No hay deportes disponibles")
+                                        }
+                                    }
+                                }
+                                else -> {}
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { showSportDialog = false }) {
+                                Text("Aceptar")
+                            }
+                        }
+                    )
+                }
 
                 val errorMsg = (saveState as? UiState.Error)?.message
                 if (errorMsg != null) {
