@@ -88,7 +88,9 @@ class MatchDetailViewModel @Inject constructor(
 
     fun updateStatus(status: String) {
         viewModelScope.launch {
-            matchRepository.updateMatchStatus(matchId, status)
+            if (matchRepository.updateMatchStatus(matchId, status).isSuccess) {
+                loadMatch()
+            }
         }
     }
 }

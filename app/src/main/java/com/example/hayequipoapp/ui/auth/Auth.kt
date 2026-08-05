@@ -91,7 +91,9 @@ class AuthViewModel @Inject constructor(
                         photoUrl = user.photoUrl?.toString() ?: ""
                     )
                     playerRepository.createPlayer(newPlayer)
-                    sessionManager.setPlayer(existing ?: newPlayer)
+                    // Recargar el perfil para tener el id real asignado por Firestore
+                    val created = playerRepository.getPlayerByUid(user.uid) ?: newPlayer
+                    sessionManager.setPlayer(created)
                 } else {
                     sessionManager.setPlayer(existing)
                 }
@@ -126,7 +128,9 @@ class AuthViewModel @Inject constructor(
                 val user = result.user ?: throw Exception("Usuario nulo")
                 val newPlayer = Player(uid = user.uid, name = name, email = email)
                 playerRepository.createPlayer(newPlayer)
-                sessionManager.setPlayer(newPlayer)
+                // Recargar el perfil para tener el id real asignado por Firestore
+                val created = playerRepository.getPlayerByUid(user.uid) ?: newPlayer
+                sessionManager.setPlayer(created)
                 _authState.value = UiState.Success(Unit)
             } catch (e: Exception) {
                 _authState.value = UiState.Error(e.message ?: "Error al registrarse")

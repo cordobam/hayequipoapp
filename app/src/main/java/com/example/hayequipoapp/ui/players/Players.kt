@@ -41,6 +41,8 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.ui.text.input.KeyboardType
 import com.example.hayequipoapp.data.session.SessionManager
+import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.tasks.await
 
 // ─── List ViewModel ───────────────────────────────────────
 @HiltViewModel
@@ -77,6 +79,7 @@ class PlayerProfileViewModel @Inject constructor(
     private val playerRepository: PlayerRepository,
     private val reviewRepository: PlayerReviewRepository,
     private val statRepository: PlayerStatRepository,
+    private val auth: FirebaseAuth,
     val sessionManager: SessionManager
 ) : ViewModel() {
 
@@ -114,9 +117,19 @@ class PlayerProfileViewModel @Inject constructor(
         }
     }
 
-    fun deletePlayer() {
+    fun deleteAccount() {
         viewModelScope.launch {
-            playerRepository.deletePlayer(playerId)
+            if (playerRepository.deletePlayer(playerId).isFailure) {
+                _player.value = UiState.Error("No se pudo eliminar el perfil. Inténtalo de nuevo.")
+                return@launch
+            }
+            try {
+                auth.currentUser?.delete()?.await()
+            } catch (e: Exception) {
+                _player.value = UiState.Error("La cuenta no pudo cerrarse definitivamente.")
+                return@launch
+            }
+            sessionManager.clear()
             _player.value = UiState.Error("Eliminado")
         }
     }
@@ -258,6 +271,7 @@ fun PlayerProfileScreen(
     playerId: String,
     onBack:   () -> Unit,
     onEdit:   () -> Unit,
+    onAccountDeleted: () -> Unit,
     viewModel: PlayerProfileViewModel = hiltViewModel()
 ) {
     val playerState  by viewModel.player.collectAsState()
@@ -269,7 +283,7 @@ fun PlayerProfileScreen(
 
     LaunchedEffect(playerState) {
         if (playerState is UiState.Error && (playerState as UiState.Error).message == "Eliminado") {
-            onBack()
+            onAccountDeleted()
         }
     }
 
@@ -367,7 +381,7 @@ fun PlayerProfileScreen(
             text = { Text("¿Eliminar esta cuenta permanentemente?") },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.deletePlayer()
+                    viewModel.deleteAccount()
                     showDeleteDialog = false
                 }) { Text("Eliminar", color = MaterialTheme.colorScheme.error) }
             },
