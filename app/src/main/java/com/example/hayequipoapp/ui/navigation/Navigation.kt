@@ -144,7 +144,12 @@ fun HayEquipoNavHost(navController: NavHostController, startDestination: String)
             PlayerProfileScreen(
                 playerId = playerId,
                 onBack   = { navController.popBackStack() },
-                onEdit   = { navController.navigate(Routes.playerForm(playerId)) }
+                onEdit   = { navController.navigate(Routes.playerForm(playerId)) },
+                onAccountDeleted = {
+                    navController.navigate(Routes.LOGIN) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
             )
         }
 
