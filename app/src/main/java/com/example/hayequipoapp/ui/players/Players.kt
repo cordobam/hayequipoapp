@@ -38,6 +38,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.ui.text.input.KeyboardType
 import com.example.hayequipoapp.data.session.SessionManager
@@ -106,13 +107,21 @@ class PlayerProfileViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            reviewRepository.getReviewsForPlayer(playerId).collect {
-                _reviews.value = UiState.Success(it)
+            try {
+                reviewRepository.getReviewsForPlayer(playerId).collect {
+                    _reviews.value = UiState.Success(it)
+                }
+            } catch (e: Exception) {
+                _reviews.value = UiState.Error(e.message ?: "Error cargando reseñas")
             }
         }
         viewModelScope.launch {
-            statRepository.getAllStatsForPlayer(playerId).collect {
-                _stats.value = it
+            try {
+                statRepository.getAllStatsForPlayer(playerId).collect {
+                    _stats.value = it
+                }
+            } catch (e: Exception) {
+                _stats.value = emptyList()
             }
         }
     }
@@ -132,6 +141,11 @@ class PlayerProfileViewModel @Inject constructor(
             sessionManager.clear()
             _player.value = UiState.Error("Eliminado")
         }
+    }
+
+    fun signOut() {
+        auth.signOut()
+        sessionManager.clear()
     }
 }
 // ─── Edit ViewModel ───────────────────────────────────────
@@ -272,6 +286,7 @@ fun PlayerProfileScreen(
     onBack:   () -> Unit,
     onEdit:   () -> Unit,
     onAccountDeleted: () -> Unit,
+    onLogout: () -> Unit = {},
     viewModel: PlayerProfileViewModel = hiltViewModel()
 ) {
     val playerState  by viewModel.player.collectAsState()
@@ -367,6 +382,20 @@ fun PlayerProfileScreen(
                             Text("Eliminar cuenta")
                             }
                         }
+                    item {
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = {
+                                onLogout()
+                                viewModel.signOut()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Filled.ExitToApp, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Cerrar sesión")
+                        }
+                    }
                     }
                 }
             }

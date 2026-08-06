@@ -11,6 +11,7 @@ import com.example.hayequipoapp.data.model.Sport
 import com.example.hayequipoapp.data.model.Venue
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.CollectionReference
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.channels.awaitClose
@@ -175,6 +176,13 @@ class FirebaseSource @Inject constructor(
     suspend fun updateMatchStatus(matchId: String, status: String) {
         matches.document(matchId).update(
             "status", status,
+            "updatedAt", Timestamp.now()
+        ).await()
+    }
+
+    suspend fun addMatchParticipant(matchId: String, playerId: String) {
+        matches.document(matchId).update(
+            "participantIds", FieldValue.arrayUnion(playerId),
             "updatedAt", Timestamp.now()
         ).await()
     }

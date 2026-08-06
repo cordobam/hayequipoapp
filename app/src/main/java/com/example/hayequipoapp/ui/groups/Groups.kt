@@ -16,12 +16,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.hayequipoapp.domain.repository.FriendGroupRepository
 import com.example.hayequipoapp.domain.repository.PlayerRepository
+import com.example.hayequipoapp.data.session.CurrentPlayerResolver
 import com.example.hayequipoapp.ui.common.EmptyScreen
 import com.example.hayequipoapp.ui.common.ErrorScreen
 import com.example.hayequipoapp.ui.common.LoadingScreen
 import com.example.hayequipoapp.ui.common.SectionHeader
 import com.example.hayequipoapp.ui.common.UiState
-import com.google.firebase.auth.FirebaseAuth
 import com.example.hayequipoapp.data.model.FriendGroup
 import com.example.hayequipoapp.data.model.Player
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -34,7 +34,7 @@ import javax.inject.Inject
 @HiltViewModel
 class FriendGroupListViewModel @Inject constructor(
     private val groupRepository: FriendGroupRepository,
-    private val auth: FirebaseAuth
+    private val resolver: CurrentPlayerResolver
 ) : ViewModel() {
 
     private val _groups = MutableStateFlow<UiState<List<FriendGroup>>>(UiState.Loading)
@@ -46,9 +46,9 @@ class FriendGroupListViewModel @Inject constructor(
     init { load() }
 
     fun load() {
-        val uid = auth.currentUser?.uid ?: return
         viewModelScope.launch {
-            groupRepository.getFriendGroupsByPlayer(uid).collect {
+            val myId = resolver.id() ?: return@launch
+            groupRepository.getFriendGroupsByPlayer(myId).collect {
                 _groups.value = UiState.Success(it)
             }
         }
@@ -58,9 +58,9 @@ class FriendGroupListViewModel @Inject constructor(
     fun closeCreateDialog() { _showCreateDialog.value = false }
 
     fun createGroup(name: String) {
-        val uid = auth.currentUser?.uid ?: return
         viewModelScope.launch {
-            val group = FriendGroup(name = name, createdBy = uid, memberIds = listOf(uid))
+            val myId = resolver.id() ?: return@launch
+            val group = FriendGroup(name = name, createdBy = myId, memberIds = listOf(myId))
             groupRepository.createFriendGroup(group)
             closeCreateDialog()
         }

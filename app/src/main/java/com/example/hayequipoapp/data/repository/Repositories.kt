@@ -57,6 +57,8 @@ class MatchRepositoryImpl @Inject constructor(private val source: FirebaseSource
     override suspend fun updateMatch(match: Match) = runCatching { source.updateMatch(match) }
     override suspend fun updateMatchStatus(matchId: String, status: String) =
         runCatching { source.updateMatchStatus(matchId, status) }
+    override suspend fun addMatchParticipant(matchId: String, playerId: String) =
+        runCatching { source.addMatchParticipant(matchId, playerId) }
 }
 
 class MatchInvitationRepositoryImpl @Inject constructor(private val source: FirebaseSource) : MatchInvitationRepository {
