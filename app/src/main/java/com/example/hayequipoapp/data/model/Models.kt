@@ -86,6 +86,7 @@ data class Match(
     // "scheduled" → "confirmed" → "in_progress" → "finished" | "cancelled"
     val pricePerPlayer: Double = 0.0,
     val teams: List<MatchTeam> = emptyList(),
+    val participantIds: List<String> = emptyList(),
     val playersNeeded: Int = 0,
     val createdAt: Timestamp? = null,
     val updatedAt: Timestamp? = null

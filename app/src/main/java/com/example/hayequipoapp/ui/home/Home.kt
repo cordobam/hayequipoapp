@@ -17,9 +17,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.hayequipoapp.domain.repository.MatchInvitationRepository
 import com.example.hayequipoapp.domain.repository.MatchRepository
-import com.google.firebase.auth.FirebaseAuth
 import com.example.hayequipoapp.data.model.Match
 import com.example.hayequipoapp.data.model.MatchInvitation
+import com.example.hayequipoapp.data.session.CurrentPlayerResolver
 import com.example.hayequipoapp.ui.common.UiState
 import com.example.hayequipoapp.ui.navigation.HayEquipoNavHost
 import com.example.hayequipoapp.ui.navigation.Routes
@@ -42,7 +42,7 @@ import com.example.hayequipoapp.data.session.SessionManager
 class HomeViewModel @Inject constructor(
     private val matchRepository: MatchRepository,
     private val invitationRepository: MatchInvitationRepository,
-    private val auth: FirebaseAuth,
+    private val resolver: CurrentPlayerResolver,
     val sessionManager: SessionManager
 ) : ViewModel() {
 
@@ -52,21 +52,67 @@ class HomeViewModel @Inject constructor(
     private val _pendingInvitations = MutableStateFlow<UiState<List<MatchInvitation>>>(UiState.Loading)
     val pendingInvitations = _pendingInvitations.asStateFlow()
 
-    val currentUid: String? get() = auth.currentUser?.uid
+    private val _matchesById = MutableStateFlow<Map<String, Match>>(emptyMap())
+    val matchesById = _matchesById.asStateFlow()
 
-    init { load() }
+    init {
+        load()
+        warmUpSession()
+    }
 
     fun load() {
         viewModelScope.launch {
-            matchRepository.getUpcomingMatches().collect { list ->
-                _upcomingMatches.value = UiState.Success(list.take(5))
+            try {
+                matchRepository.getUpcomingMatches().collect { list ->
+                    _upcomingMatches.value = UiState.Success(list.take(5))
+                    _matchesById.value = list.associateBy { it.id }
+                }
+            } catch (e: Exception) {
+                _upcomingMatches.value = UiState.Error(e.message ?: "Error cargando partidos")
             }
         }
         viewModelScope.launch {
-            val uid = currentUid ?: return@launch
-            invitationRepository.getPendingInvitationsForPlayer(uid).collect { list ->
-                _pendingInvitations.value = UiState.Success(list)
+            val myId = resolver.id() ?: return@launch
+            try {
+                invitationRepository.getPendingInvitationsForPlayer(myId).collect { list ->
+                    _pendingInvitations.value = UiState.Success(list)
+                    resolveInvitationMatches(list)
+                }
+            } catch (e: Exception) {
+                _pendingInvitations.value = UiState.Error(e.message ?: "Error cargando invitaciones")
             }
+        }
+    }
+
+    private fun resolveInvitationMatches(invitations: List<MatchInvitation>) {
+        viewModelScope.launch {
+            invitations.mapNotNull { it.matchId }.distinct().forEach { matchId ->
+                if (matchId !in _matchesById.value) {
+                    matchRepository.getMatchById(matchId)?.let { m ->
+                        _matchesById.value = _matchesById.value + (m.id to m)
+                    }
+                }
+            }
+        }
+    }
+
+    fun respondInvitation(invId: String, accepted: Boolean) {
+        viewModelScope.launch {
+            invitationRepository.updateInvitationStatus(
+                invId,
+                if (accepted) "accepted" else "rejected"
+            )
+        }
+    }
+
+    private fun warmUpSession() {
+        viewModelScope.launch { resolver.id() }
+    }
+
+    fun resolveMyProfileId(onResult: (String) -> Unit) {
+        viewModelScope.launch {
+            val id = resolver.id()
+            if (id != null) onResult(id)
         }
     }
 }
@@ -132,7 +178,9 @@ fun HomeScreen(navController: NavController) {
                 ) }
                 composable(Routes.PLAYER_LIST) { PlayerListScreen(
                     onPlayerClick = { navController.navigate(Routes.playerProfile(it)) },
-                    onProfileClick = { currentPlayer?.id?.let { navController.navigate(Routes.playerProfile(it)) } }
+                    onProfileClick = { viewModel.resolveMyProfileId { id ->
+                        navController.navigate(Routes.playerProfile(id))
+                    } }
                 ) }
                 composable(Routes.GROUP_LIST) { FriendGroupListScreen(
                     onGroupClick = { navController.navigate(Routes.groupDetail(it)) }
@@ -155,6 +203,7 @@ fun HomeDashboard(
 ) {
     val matches     by viewModel.upcomingMatches.collectAsState()
     val invitations by viewModel.pendingInvitations.collectAsState()
+    val matchesById by viewModel.matchesById.collectAsState()
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
 
@@ -193,7 +242,12 @@ fun HomeDashboard(
                     Text("Sin invitaciones pendientes", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     list.forEach { inv ->
-                        InvitationCard(invitation = inv, onAccept = {}, onReject = {})
+                        InvitationCard(
+                            invitation = inv,
+                            matchTitle = matchesById[inv.matchId]?.title,
+                            onAccept = { viewModel.respondInvitation(inv.id, true) },
+                            onReject = { viewModel.respondInvitation(inv.id, false) }
+                        )
                         Spacer(Modifier.height(8.dp))
                     }
                 }
@@ -216,6 +270,7 @@ private fun MatchSummaryCard(match: Match, onClick: () -> Unit) {
 @Composable
 private fun InvitationCard(
     invitation: MatchInvitation,
+    matchTitle: String?,
     onAccept: () -> Unit,
     onReject: () -> Unit
 ) {
@@ -225,7 +280,7 @@ private fun InvitationCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("Partido: ${invitation.matchId}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Text(matchTitle ?: "Partido: ${invitation.matchId}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
             TextButton(onClick = onAccept) { Text("Voy") }
             TextButton(onClick = onReject) { Text("No puedo") }
         }

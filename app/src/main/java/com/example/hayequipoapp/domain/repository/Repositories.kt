@@ -55,6 +55,7 @@ interface MatchRepository {
     suspend fun createMatch(match: Match): Result<String>
     suspend fun updateMatch(match: Match): Result<Unit>
     suspend fun updateMatchStatus(matchId: String, status: String): Result<Unit>
+    suspend fun addMatchParticipant(matchId: String, playerId: String): Result<Unit>
 }
 
 interface MatchInvitationRepository {

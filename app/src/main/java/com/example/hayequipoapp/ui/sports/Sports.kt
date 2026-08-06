@@ -24,6 +24,7 @@ import com.example.hayequipoapp.domain.repository.SportRepository
 import com.example.hayequipoapp.ui.common.EmptyScreen
 import com.example.hayequipoapp.ui.common.ErrorScreen
 import com.example.hayequipoapp.ui.common.LoadingScreen
+import com.example.hayequipoapp.ui.common.DropdownField
 import com.example.hayequipoapp.ui.common.UiState
 import com.example.hayequipoapp.data.model.Sport
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -271,9 +272,6 @@ fun SportFormScreen(
     val typeOptions = listOf("team" to "Equipo", "individual" to "Individual", "pairs" to "Parejas")
     val unitOptions = listOf("goles" to "Goles", "puntos" to "Puntos", "sets" to "Sets")
 
-    var typeExpanded by remember { mutableStateOf(false) }
-    var unitExpanded by remember { mutableStateOf(false) }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -312,27 +310,13 @@ fun SportFormScreen(
                 )
 
                 // Tipo
-                ExposedDropdownMenuBox(
-                    expanded = typeExpanded,
-                    onExpandedChange = { typeExpanded = it }
-                ) {
-                    OutlinedTextField(
-                        value = typeOptions.first { it.first == viewModel.type }.second,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Tipo") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = typeExpanded) },
-                        modifier = Modifier.fillMaxWidth().menuAnchor()
-                    )
-                    ExposedDropdownMenu(expanded = typeExpanded, onDismissRequest = { typeExpanded = false }) {
-                        typeOptions.forEach { (key, label) ->
-                            DropdownMenuItem(
-                                text = { Text(label) },
-                                onClick = { viewModel.type = key; typeExpanded = false }
-                            )
-                        }
-                    }
-                }
+                DropdownField(
+                    value = typeOptions.first { it.first == viewModel.type }.second,
+                    label = "Tipo",
+                    options = typeOptions.map { it.second },
+                    onOptionSelected = { viewModel.type = typeOptions[it].first },
+                    modifier = Modifier.fillMaxWidth()
+                )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     OutlinedTextField(
@@ -380,27 +364,13 @@ fun SportFormScreen(
                 )
 
                 // Unidad de puntuación
-                ExposedDropdownMenuBox(
-                    expanded = unitExpanded,
-                    onExpandedChange = { unitExpanded = it }
-                ) {
-                    OutlinedTextField(
-                        value = unitOptions.first { it.first == viewModel.scoringUnit }.second,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Unidad de puntuación") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = unitExpanded) },
-                        modifier = Modifier.fillMaxWidth().menuAnchor()
-                    )
-                    ExposedDropdownMenu(expanded = unitExpanded, onDismissRequest = { unitExpanded = false }) {
-                        unitOptions.forEach { (key, label) ->
-                            DropdownMenuItem(
-                                text = { Text(label) },
-                                onClick = { viewModel.scoringUnit = key; unitExpanded = false }
-                            )
-                        }
-                    }
-                }
+                DropdownField(
+                    value = unitOptions.first { it.first == viewModel.scoringUnit }.second,
+                    label = "Unidad de puntuación",
+                    options = unitOptions.map { it.second },
+                    onOptionSelected = { viewModel.scoringUnit = unitOptions[it].first },
+                    modifier = Modifier.fillMaxWidth()
+                )
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Activo", modifier = Modifier.weight(1f))

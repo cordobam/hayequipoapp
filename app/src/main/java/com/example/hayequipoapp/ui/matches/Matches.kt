@@ -6,14 +6,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import com.example.hayequipoapp.domain.repository.MatchRepository
 import com.example.hayequipoapp.ui.common.EmptyScreen
 import com.example.hayequipoapp.ui.common.ErrorScreen
@@ -22,7 +23,7 @@ import com.example.hayequipoapp.ui.common.StatusChip
 import com.example.hayequipoapp.ui.common.UiState
 import com.google.firebase.Timestamp
 import com.example.hayequipoapp.data.model.Match
-import com.google.firebase.auth.FirebaseAuth
+import com.example.hayequipoapp.data.session.CurrentPlayerResolver
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,20 +38,39 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SportsSoccer
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
+import com.example.hayequipoapp.data.model.MatchInvitation
+import com.example.hayequipoapp.data.model.MatchTeam
+import com.example.hayequipoapp.data.model.Player
 import com.example.hayequipoapp.data.model.Venue
 import com.example.hayequipoapp.data.session.SessionManager
+import com.example.hayequipoapp.domain.repository.MatchInvitationRepository
+import com.example.hayequipoapp.domain.repository.PlayerRepository
+import com.example.hayequipoapp.ui.common.DropdownField
 
 // ─── List ViewModel ───────────────────────────────────────
 @HiltViewModel
 class MatchListViewModel @Inject constructor(
     private val matchRepository: MatchRepository,
+    private val resolver: CurrentPlayerResolver,
     val sessionManager: SessionManager
 ) : ViewModel() {
 
     private val _matches = MutableStateFlow<UiState<List<Match>>>(UiState.Loading)
     val matches = _matches.asStateFlow()
 
-    init { loadMatches() }
+    private val _myId = MutableStateFlow<String?>(null)
+    val myId = _myId.asStateFlow()
+
+    init {
+        loadMatches()
+        resolveMyId()
+    }
+
+    private fun resolveMyId() {
+        viewModelScope.launch { _myId.value = resolver.id() }
+    }
 
     fun loadMatches() {
         viewModelScope.launch {
@@ -59,13 +79,24 @@ class MatchListViewModel @Inject constructor(
             }
         }
     }
+
+    fun joinMatch(matchId: String) {
+        val me = _myId.value ?: return
+        viewModelScope.launch {
+            matchRepository.addMatchParticipant(matchId, me)
+        }
+    }
 }
 
 // ─── Detail ViewModel ─────────────────────────────────────
 @HiltViewModel
 class MatchDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    private val matchRepository: MatchRepository
+    private val matchRepository: MatchRepository,
+    private val invitationRepository: MatchInvitationRepository,
+    private val playerRepository: PlayerRepository,
+    private val sportRepository: SportRepository,
+    private val resolver: CurrentPlayerResolver
 ) : ViewModel() {
 
     private val matchId: String = checkNotNull(savedStateHandle["matchId"])
@@ -73,16 +104,135 @@ class MatchDetailViewModel @Inject constructor(
     private val _match = MutableStateFlow<UiState<Match>>(UiState.Loading)
     val match = _match.asStateFlow()
 
-    init { loadMatch() }
+    private val _canInvite = MutableStateFlow(false)
+    val canInvite = _canInvite.asStateFlow()
+
+    private val _invitations = MutableStateFlow<UiState<List<MatchInvitation>>>(UiState.Loading)
+    val invitations = _invitations.asStateFlow()
+
+    private val _allPlayers = MutableStateFlow<List<Player>>(emptyList())
+    val allPlayers = _allPlayers.asStateFlow()
+
+    private val _myId = MutableStateFlow<String?>(null)
+    private val _invitedIds = MutableStateFlow<Set<String>>(emptySet())
+
+    private val _availablePlayers = MutableStateFlow<UiState<List<Player>>>(UiState.Loading)
+    val availablePlayers = _availablePlayers.asStateFlow()
+
+    private val _inviteState = MutableStateFlow<UiState<String>?>(null)
+    val inviteState = _inviteState.asStateFlow()
+
+    private val _sport = MutableStateFlow<Sport?>(null)
+    val sport = _sport.asStateFlow()
+
+    private val _teamCount = MutableStateFlow(2)
+    val teamCount = _teamCount.asStateFlow()
+
+    private val _candidates = MutableStateFlow<List<String>>(emptyList())
+    val candidates = _candidates.asStateFlow()
+
+    private val _saveTeamsState = MutableStateFlow<UiState<String>?>(null)
+    val saveTeamsState = _saveTeamsState.asStateFlow()
+
+    init {
+        loadMatch()
+        loadInvitations()
+        loadAvailablePlayers()
+    }
 
     fun loadMatch() {
         viewModelScope.launch {
             try {
                 val m = matchRepository.getMatchById(matchId)
                 _match.value = if (m != null) UiState.Success(m) else UiState.Error("Partido no encontrado")
+                _myId.value = resolver.id()
+                _canInvite.value = m?.organizerId != null && m.organizerId == _myId.value
+                recomputeAvailablePlayers()
+                recomputeCandidates()
+                m?.sportId?.takeIf { it.isNotBlank() }?.let { loadSport(it) }
             } catch (e: Exception) {
                 _match.value = UiState.Error(e.message ?: "Error al cargar partido")
             }
+        }
+    }
+
+    private fun loadSport(sportId: String) {
+        viewModelScope.launch {
+            _sport.value = sportRepository.getSportById(sportId)
+            _teamCount.value = _sport.value?.teamCount ?: 2
+        }
+    }
+
+    fun loadInvitations() {
+        viewModelScope.launch {
+            try {
+                invitationRepository.getInvitationsForMatch(matchId).collect { list ->
+                    _invitations.value = UiState.Success(list)
+                    _invitedIds.value = list.map { it.playerId }.toSet()
+                    recomputeAvailablePlayers()
+                    recomputeCandidates()
+                }
+            } catch (e: Exception) {
+                _invitations.value = UiState.Error(e.message ?: "Error cargando invitaciones")
+            }
+        }
+    }
+
+    fun loadAvailablePlayers() {
+        viewModelScope.launch {
+            try {
+                playerRepository.getPlayers().collect { list ->
+                    _allPlayers.value = list
+                    recomputeAvailablePlayers()
+                }
+            } catch (e: Exception) {
+                _availablePlayers.value = UiState.Error(e.message ?: "Error cargando jugadores")
+            }
+        }
+    }
+
+    private fun recomputeAvailablePlayers() {
+        val me = _myId.value
+        _availablePlayers.value = UiState.Success(
+            _allPlayers.value.filter { it.id != me && it.id !in _invitedIds.value }
+        )
+    }
+
+    private fun recomputeCandidates() {
+        val m = (_match.value as? UiState.Success)?.data ?: return
+        val acceptedIds = (_invitations.value as? UiState.Success)?.data
+            ?.filter { it.status == "accepted" }
+            ?.map { it.playerId }
+            ?: emptyList()
+        _candidates.value = (m.participantIds + acceptedIds).distinct()
+    }
+
+    fun saveTeams(teams: List<MatchTeam>) {
+        val m = (_match.value as? UiState.Success)?.data ?: return
+        viewModelScope.launch {
+            _saveTeamsState.value = UiState.Loading
+            val result = matchRepository.updateMatch(m.copy(teams = teams))
+            _saveTeamsState.value = result.fold(
+                onSuccess = { UiState.Success("Equipos guardados") },
+                onFailure = { UiState.Error(it.message ?: "Error al guardar equipos") }
+            )
+            loadMatch()
+        }
+    }
+
+    fun invitePlayers(invitedIds: List<String>) {
+        if (invitedIds.isEmpty()) return
+        viewModelScope.launch {
+            val myId = resolver.id()
+                ?: run { _inviteState.value = UiState.Error("No hay sesión activa"); return@launch }
+            _inviteState.value = UiState.Loading
+            var ok = true
+            invitedIds.forEach { pid ->
+                val invitation = MatchInvitation(matchId = matchId, playerId = pid, invitedBy = myId)
+                if (invitationRepository.createInvitation(invitation).isFailure) ok = false
+            }
+            _inviteState.value = if (ok) UiState.Success("Invitaciones enviadas")
+                else UiState.Error("Algunas invitaciones no se pudieron enviar")
         }
     }
 
@@ -100,7 +250,7 @@ class MatchDetailViewModel @Inject constructor(
 @HiltViewModel
 class MatchFormViewModel @Inject constructor(
     private val matchRepository: MatchRepository,
-    private val auth: FirebaseAuth,
+    private val resolver: CurrentPlayerResolver,
     private val sportRepository: SportRepository,
     private val venueRepository: VenueRepository
 ) : ViewModel() {
@@ -139,16 +289,16 @@ class MatchFormViewModel @Inject constructor(
         playersNeeded: Int,
         pricePerPlayer: Double
     ) {
-        val organizerId = auth.currentUser?.uid
-            ?: run { _saved.value = UiState.Error("No hay sesión activa"); return }
-
         viewModelScope.launch {
+            val organizerId = resolver.id()
+                ?: run { _saved.value = UiState.Error("No hay sesión activa"); return@launch }
+
             _saved.value = UiState.Loading
             val match = Match(
                 title           = title,
                 sportId         = sportId,
                 venueId         = venueId,
-                organizerId     = organizerId,   // ← viene de FirebaseAuth
+                organizerId     = organizerId,
                 durationMinutes = durationMinutes,
                 playersNeeded   = playersNeeded,
                 pricePerPlayer  = pricePerPlayer,
@@ -175,6 +325,7 @@ fun MatchListScreen(
     val state by viewModel.matches.collectAsState()
     val currentPlayer by viewModel.sessionManager.currentPlayer.collectAsState()
     val isAdmin = currentPlayer?.role == "admin"
+    val myId by viewModel.myId.collectAsState()
 
     Scaffold(
         topBar = {
@@ -212,7 +363,12 @@ fun MatchListScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(list, key = { it.id }) { match ->
-                            MatchCard(match = match, onClick = { onMatchClick(match.id) })
+                            MatchCard(
+                                match = match,
+                                myId = myId,
+                                onClick = { onMatchClick(match.id) },
+                                onJoin = { viewModel.joinMatch(match.id) }
+                            )
                         }
                     }
                 }
@@ -231,6 +387,31 @@ fun MatchDetailScreen(
     viewModel: MatchDetailViewModel = hiltViewModel()
 ) {
     val state by viewModel.match.collectAsState()
+    val canInvite by viewModel.canInvite.collectAsState()
+    val invitations by viewModel.invitations.collectAsState()
+    val allPlayers by viewModel.allPlayers.collectAsState()
+    val availablePlayers by viewModel.availablePlayers.collectAsState()
+    val inviteState by viewModel.inviteState.collectAsState()
+    val candidates by viewModel.candidates.collectAsState()
+    val teamCount by viewModel.teamCount.collectAsState()
+    val saveTeamsState by viewModel.saveTeamsState.collectAsState()
+
+    var showInviteDialog by remember { mutableStateOf(false) }
+    var selectedIds by remember { mutableStateOf(setOf<String>()) }
+    var showTeamsDialog by remember { mutableStateOf(false) }
+    var assignments by remember { mutableStateOf<Map<String, Int?>>(emptyMap()) }
+
+    val context = LocalContext.current
+    LaunchedEffect(inviteState) {
+        (inviteState as? UiState.Success)?.let {
+            Toast.makeText(context, it.data, Toast.LENGTH_SHORT).show()
+        }
+    }
+    LaunchedEffect(saveTeamsState) {
+        (saveTeamsState as? UiState.Success)?.let {
+            Toast.makeText(context, it.data, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -250,13 +431,134 @@ fun MatchDetailScreen(
             is UiState.Success -> {
                 val match = (state as UiState.Success).data
                 MatchDetailContent(
-                    match     = match,
+                    match          = match,
                     onStatusChange = { viewModel.updateStatus(it) },
-                    modifier  = Modifier.padding(padding)
+                    canInvite      = canInvite,
+                    invitations    = invitations,
+                    allPlayers     = allPlayers,
+                    onInviteClick  = {
+                        selectedIds = emptySet()
+                        showInviteDialog = true
+                    },
+                    onTeamsClick   = {
+                        val init = mutableMapOf<String, Int?>()
+                        match.teams.forEachIndexed { idx, team ->
+                            team.playerIds.forEach { id -> init[id] = idx }
+                        }
+                        assignments = init
+                        showTeamsDialog = true
+                    },
+                    modifier       = Modifier.padding(padding)
                 )
             }
             else ->{}
         }
+    }
+
+    if (showInviteDialog) {
+        AlertDialog(
+            onDismissRequest = { showInviteDialog = false },
+            title = { Text("Invitar jugadores") },
+            text = {
+                when (availablePlayers) {
+                    is UiState.Loading -> CircularProgressIndicator()
+                    is UiState.Error -> Text((availablePlayers as UiState.Error).message, color = MaterialTheme.colorScheme.error)
+                    is UiState.Success -> {
+                        val players = (availablePlayers as UiState.Success).data
+                        if (players.isEmpty()) {
+                            Text("No hay jugadores disponibles para invitar", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                                items(players, key = { it.id }) { player ->
+                                    ListItem(
+                                        headlineContent  = { Text(player.name) },
+                                        supportingContent = { Text(player.position.ifBlank { "Sin posición" }) },
+                                        trailingContent = {
+                                            Checkbox(
+                                                checked = player.id in selectedIds,
+                                                onCheckedChange = { checked ->
+                                                    selectedIds = if (checked) selectedIds + player.id else selectedIds - player.id
+                                                }
+                                            )
+                                        }
+                                    )
+                                    HorizontalDivider()
+                                }
+                            }
+                        }
+                    }
+                    else -> {}
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.invitePlayers(selectedIds.toList())
+                        showInviteDialog = false
+                    },
+                    enabled = selectedIds.isNotEmpty()
+                ) { Text("Enviar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showInviteDialog = false }) { Text("Cancelar") }
+            }
+        )
+    }
+
+    if (showTeamsDialog) {
+        AlertDialog(
+            onDismissRequest = { showTeamsDialog = false },
+            title = { Text("Armar equipos") },
+            text = {
+                if (candidates.isEmpty()) {
+                    Text("Aún no hay jugadores anotados", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    LazyColumn(modifier = Modifier.heightIn(max = 480.dp)) {
+                        items(candidates, key = { it }) { playerId ->
+                            val name = allPlayers.firstOrNull { it.id == playerId }?.name ?: playerId
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                                val selected = assignments[playerId]
+                                DropdownField(
+                                    value = if (selected == null) "Sin equipo"
+                                            else "Equipo ${selected + 1}",
+                                    label = "Equipo",
+                                    options = buildList {
+                                        add("Sin equipo")
+                                        repeat(teamCount) { i -> add("Equipo ${i + 1}") }
+                                    },
+                                    onOptionSelected = { itemIndex ->
+                                        val teamValue: Int? = if (itemIndex == 0) null else itemIndex
+                                        assignments = assignments + (playerId to teamValue)
+                                    },
+                                    modifier = Modifier.widthIn(min = 150.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val teams = (0 until teamCount).map { idx ->
+                            val ids = assignments.filterValues { it == idx }.keys.toList()
+                            val prev = (state as? UiState.Success)?.data?.teams?.getOrNull(idx)
+                            MatchTeam(name = prev?.name ?: "Equipo ${idx + 1}", playerIds = ids, score = prev?.score)
+                        }
+                        viewModel.saveTeams(teams)
+                        showTeamsDialog = false
+                    },
+                    enabled = candidates.isNotEmpty()
+                ) { Text("Guardar equipos") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTeamsDialog = false }) { Text("Cancelar") }
+            }
+        )
     }
 }
 
@@ -264,6 +566,11 @@ fun MatchDetailScreen(
 private fun MatchDetailContent(
     match: Match,
     onStatusChange: (String) -> Unit,
+    canInvite: Boolean,
+    invitations: UiState<List<MatchInvitation>>,
+    allPlayers: List<Player>,
+    onInviteClick: () -> Unit,
+    onTeamsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -276,6 +583,46 @@ private fun MatchDetailContent(
         }
         match.description.takeIf { it.isNotBlank() }?.let {
             Text(it, style = MaterialTheme.typography.bodyLarge)
+        }
+
+        if (canInvite) {
+            OutlinedButton(onClick = onInviteClick, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Invitar jugadores")
+            }
+            Spacer(Modifier.height(4.dp))
+            OutlinedButton(onClick = onTeamsClick, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Filled.Group, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Armar equipos")
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        Text("Invitados", style = MaterialTheme.typography.titleLarge)
+        when (invitations) {
+            is UiState.Loading -> CircularProgressIndicator()
+            is UiState.Error -> Text((invitations as UiState.Error).message, color = MaterialTheme.colorScheme.error)
+            is UiState.Success -> {
+                val invList = (invitations as UiState.Success).data
+                if (invList.isEmpty()) {
+                    Text("Aún no hay invitaciones", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    invList.forEach { inv ->
+                        val name = allPlayers.firstOrNull { it.id == inv.playerId }?.name ?: inv.playerId
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            StatusChip(inv.status)
+                        }
+                    }
+                }
+            }
+            else -> {}
         }
 
         Spacer(Modifier.height(8.dp))
@@ -321,8 +668,6 @@ fun MatchFormScreen(
     var duration      by remember { mutableStateOf("60") }
     var playersNeeded by remember { mutableStateOf("10") }
     var price         by remember { mutableStateOf("0") }
-    var sportExpanded by remember { mutableStateOf(false) }
-    var venueExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(saved) {
         if (saved is UiState.Success) onBack()
@@ -367,36 +712,14 @@ fun MatchFormScreen(
 
             // ─── Deporte ─────────────────────────────────────
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                ExposedDropdownMenuBox(
-                    expanded = sportExpanded,
-                    onExpandedChange = { sportExpanded = it },
+                DropdownField(
+                    value = sportList.firstOrNull { it.id == sportId }?.name ?: "",
+                    label = "Deporte",
+                    options = sportList.map { it.name },
+                    emptyMessage = "No hay deportes",
+                    onOptionSelected = { sportId = sportList[it].id },
                     modifier = Modifier.weight(1f)
-                ) {
-                    OutlinedTextField(
-                        value = sportList.firstOrNull { it.id == sportId }?.name
-                            ?: if (sportId.isBlank()) "" else sportId,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Deporte") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = sportExpanded) },
-                        modifier = Modifier.fillMaxWidth().menuAnchor()
-                    )
-                    ExposedDropdownMenu(expanded = sportExpanded, onDismissRequest = { sportExpanded = false }) {
-                        if (sportList.isEmpty()) {
-                            DropdownMenuItem(
-                                text = { Text("No hay deportes") },
-                                onClick = { sportExpanded = false }
-                            )
-                        } else {
-                            sportList.forEach { sport ->
-                                DropdownMenuItem(
-                                    text = { Text(sport.name) },
-                                    onClick = { sportId = sport.id; sportExpanded = false }
-                                )
-                            }
-                        }
-                    }
-                }
+                )
                 Spacer(Modifier.width(4.dp))
                 IconButton(onClick = onManageSports) {
                     Icon(Icons.Filled.Settings, contentDescription = "Gestionar deportes")
@@ -404,41 +727,15 @@ fun MatchFormScreen(
             }
 
             // ─── Sede ────────────────────────────────────────
-            ExposedDropdownMenuBox(
-                expanded = venueExpanded,
-                onExpandedChange = { venueExpanded = it },
+            DropdownField(
+                value = venueList.firstOrNull { it.id == venueId }?.name ?: "",
+                label = "Sede",
+                options = venueList.map { it.name },
+                emptyMessage = if (sportId.isBlank()) "Seleccioná un deporte primero"
+                else "No hay sedes para este deporte",
+                onOptionSelected = { venueId = venueList[it].id },
                 modifier = Modifier.fillMaxWidth()
-            ) {
-                OutlinedTextField(
-                    value = venueList.firstOrNull { it.id == venueId }?.name
-                        ?: if (venueId.isBlank()) "" else venueId,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Sede") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = venueExpanded) },
-                    modifier = Modifier.fillMaxWidth().menuAnchor()
-                )
-                ExposedDropdownMenu(expanded = venueExpanded, onDismissRequest = { venueExpanded = false }) {
-                    if (sportId.isBlank()) {
-                        DropdownMenuItem(
-                            text = { Text("Seleccioná un deporte primero") },
-                            onClick = { venueExpanded = false }
-                        )
-                    } else if (venueList.isEmpty()) {
-                        DropdownMenuItem(
-                            text = { Text("No hay sedes para este deporte") },
-                            onClick = { venueExpanded = false }
-                        )
-                    } else {
-                        venueList.forEach { venue ->
-                            DropdownMenuItem(
-                                text = { Text(venue.name) },
-                                onClick = { venueId = venue.id; venueExpanded = false }
-                            )
-                        }
-                    }
-                }
-            }
+            )
 
             OutlinedTextField(value = duration, onValueChange = { duration = it },
                 label = { Text("Duración (min)") }, modifier = Modifier.fillMaxWidth())
@@ -475,7 +772,12 @@ fun MatchFormScreen(
 
 // ─── MatchCard ────────────────────────────────────────────
 @Composable
-fun MatchCard(match: Match, onClick: () -> Unit) {
+fun MatchCard(
+    match: Match,
+    myId: String?,
+    onClick: () -> Unit,
+    onJoin: () -> Unit
+) {
     Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(
@@ -488,6 +790,17 @@ fun MatchCard(match: Match, onClick: () -> Unit) {
             Text("${match.durationMinutes} min · ${match.playersNeeded} jugadores", style = MaterialTheme.typography.bodyMedium)
             if (match.pricePerPlayer > 0) {
                 Text("$${match.pricePerPlayer} por jugador", style = MaterialTheme.typography.bodyMedium)
+            }
+            val isOpen = match.status == "scheduled" && match.playersNeeded > 0
+            val isOrganizer = myId != null && match.organizerId == myId
+            val isJoined = myId != null && myId in match.participantIds
+            if (isOpen && !isOrganizer) {
+                Spacer(Modifier.height(4.dp))
+                if (isJoined) {
+                    Text("Ya estás anotado", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
+                } else {
+                    Button(onClick = onJoin, modifier = Modifier.fillMaxWidth()) { Text("Anotarme") }
+                }
             }
         }
     }
