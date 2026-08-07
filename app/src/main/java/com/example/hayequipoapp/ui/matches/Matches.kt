@@ -4,9 +4,17 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Group
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.TimePickerDialog
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -23,6 +31,10 @@ import com.example.hayequipoapp.ui.common.StatusChip
 import com.example.hayequipoapp.ui.common.UiState
 import com.google.firebase.Timestamp
 import com.example.hayequipoapp.data.model.Match
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.util.Date
 import com.example.hayequipoapp.data.session.CurrentPlayerResolver
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -288,11 +300,17 @@ class MatchFormViewModel @Inject constructor(
         venueId: String,
         durationMinutes: Int,
         playersNeeded: Int,
-        pricePerPlayer: Double
+        pricePerPlayer: Double,
+        dateMillis: Long
     ) {
         viewModelScope.launch {
             val organizerId = resolver.id()
                 ?: run { _saved.value = UiState.Error("No hay sesión activa"); return@launch }
+
+            if (dateMillis <= System.currentTimeMillis()) {
+                _saved.value = UiState.Error("Elegí una fecha futura")
+                return@launch
+            }
 
             _saved.value = UiState.Loading
             val match = Match(
@@ -303,7 +321,7 @@ class MatchFormViewModel @Inject constructor(
                 durationMinutes = durationMinutes,
                 playersNeeded   = playersNeeded,
                 pricePerPlayer  = pricePerPlayer,
-                date            = Timestamp.now()
+                date            = Timestamp(Date(dateMillis))
             )
             val result = matchRepository.createMatch(match)
             _saved.value = result.fold(
@@ -628,6 +646,9 @@ fun MatchFormScreen(
     var duration      by remember { mutableStateOf("60") }
     var playersNeeded by remember { mutableStateOf("10") }
     var price         by remember { mutableStateOf("0") }
+    var dateMillis    by remember { mutableStateOf(0L) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var showTimePicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(saved) {
         if (saved is UiState.Success) onBack()
@@ -697,6 +718,26 @@ fun MatchFormScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
+            // ─── Fecha y hora ─────────────────────────────
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = dateMillis.takeIf { it > 0 }?.let { formatDateTime(it) } ?: "",
+                    onValueChange = {},
+                    readOnly = true,
+                    enabled = true,
+                    label = { Text("Fecha y hora") },
+                    placeholder = { Text("Elegir fecha y hora") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(4.dp))
+                IconButton(onClick = { showDatePicker = true }) {
+                    Icon(Icons.Filled.DateRange, contentDescription = "Elegir fecha")
+                }
+                IconButton(onClick = { showTimePicker = true }) {
+                    Icon(Icons.Filled.AccessTime, contentDescription = "Elegir hora")
+                }
+            }
+
             OutlinedTextField(value = duration, onValueChange = { duration = it },
                 label = { Text("Duración (min)") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = playersNeeded, onValueChange = { playersNeeded = it },
@@ -717,17 +758,84 @@ fun MatchFormScreen(
                         venueId         = venueId,
                         durationMinutes = duration.toIntOrNull() ?: 60,
                         playersNeeded   = playersNeeded.toIntOrNull() ?: 10,
-                        pricePerPlayer  = price.toDoubleOrNull() ?: 0.0
+                        pricePerPlayer  = price.toDoubleOrNull() ?: 0.0,
+                        dateMillis      = dateMillis
                     )
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled  = saved !is UiState.Loading
+                enabled  = saved !is UiState.Loading && dateMillis > 0
             ) {
                 if (saved is UiState.Loading) CircularProgressIndicator(modifier = Modifier.size(20.dp))
                 else Text("Crear partido")
             }
         }
     }
+
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState()
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    val selected = datePickerState.selectedDateMillis
+                    if (selected != null) {
+                        val existing = if (dateMillis > 0)
+                            Instant.ofEpochMilli(dateMillis).atZone(ZoneId.systemDefault()).toLocalDateTime()
+                        else LocalDateTime.now()
+                        val date = Instant.ofEpochMilli(selected)
+                            .atZone(ZoneId.systemDefault()).toLocalDate()
+                        val ldt = LocalDateTime.of(date, existing.toLocalTime())
+                        dateMillis = ldt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                    }
+                    showDatePicker = false
+                }) { Text("Aceptar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("Cancelar") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
+    if (showTimePicker) {
+        val timePickerState = rememberTimePickerState(
+            initialHour = if (dateMillis > 0)
+                Instant.ofEpochMilli(dateMillis).atZone(ZoneId.systemDefault()).hour
+            else 19,
+            initialMinute = if (dateMillis > 0)
+                Instant.ofEpochMilli(dateMillis).atZone(ZoneId.systemDefault()).minute
+            else 0
+        )
+        TimePickerDialog(
+            onDismissRequest = { showTimePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    val base = if (dateMillis > 0)
+                        Instant.ofEpochMilli(dateMillis).atZone(ZoneId.systemDefault())
+                            .toLocalDateTime()
+                    else LocalDateTime.now().plusDays(1)
+                    val ldt = base.withHour(timePickerState.hour).withMinute(timePickerState.minute)
+                        .withSecond(0).withNano(0)
+                    dateMillis = ldt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                    showTimePicker = false
+                }) { Text("Aceptar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTimePicker = false }) { Text("Cancelar") }
+            },
+            title = { Text("Elegir hora") }
+        ) {
+            TimePicker(state = timePickerState)
+        }
+    }
+}
+
+private fun formatDateTime(epochMillis: Long): String {
+    val ldt = Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()).toLocalDateTime()
+    val date = String.format("%02d/%02d/%d", ldt.dayOfMonth, ldt.monthValue, ldt.year)
+    val time = String.format("%02d:%02d", ldt.hour, ldt.minute)
+    return "$date $time"
 }
 
 // ─── MatchCard ────────────────────────────────────────────
