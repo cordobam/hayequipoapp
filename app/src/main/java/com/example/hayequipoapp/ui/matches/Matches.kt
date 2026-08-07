@@ -49,6 +49,7 @@ import com.example.hayequipoapp.domain.repository.MatchInvitationRepository
 import com.example.hayequipoapp.domain.repository.PlayerRepository
 import com.example.hayequipoapp.ui.common.DropdownField
 
+
 // ─── List ViewModel ───────────────────────────────────────
 @HiltViewModel
 class MatchListViewModel @Inject constructor(
@@ -397,7 +398,6 @@ fun MatchDetailScreen(
     val saveTeamsState by viewModel.saveTeamsState.collectAsState()
 
     var showInviteDialog by remember { mutableStateOf(false) }
-    var selectedIds by remember { mutableStateOf(setOf<String>()) }
     var showTeamsDialog by remember { mutableStateOf(false) }
     var assignments by remember { mutableStateOf<Map<String, Int?>>(emptyMap()) }
 
@@ -437,7 +437,6 @@ fun MatchDetailScreen(
                     invitations    = invitations,
                     allPlayers     = allPlayers,
                     onInviteClick  = {
-                        selectedIds = emptySet()
                         showInviteDialog = true
                     },
                     onTeamsClick   = {
@@ -456,52 +455,13 @@ fun MatchDetailScreen(
     }
 
     if (showInviteDialog) {
-        AlertDialog(
-            onDismissRequest = { showInviteDialog = false },
-            title = { Text("Invitar jugadores") },
-            text = {
-                when (availablePlayers) {
-                    is UiState.Loading -> CircularProgressIndicator()
-                    is UiState.Error -> Text((availablePlayers as UiState.Error).message, color = MaterialTheme.colorScheme.error)
-                    is UiState.Success -> {
-                        val players = (availablePlayers as UiState.Success).data
-                        if (players.isEmpty()) {
-                            Text("No hay jugadores disponibles para invitar", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else {
-                            LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
-                                items(players, key = { it.id }) { player ->
-                                    ListItem(
-                                        headlineContent  = { Text(player.name) },
-                                        supportingContent = { Text(player.position.ifBlank { "Sin posición" }) },
-                                        trailingContent = {
-                                            Checkbox(
-                                                checked = player.id in selectedIds,
-                                                onCheckedChange = { checked ->
-                                                    selectedIds = if (checked) selectedIds + player.id else selectedIds - player.id
-                                                }
-                                            )
-                                        }
-                                    )
-                                    HorizontalDivider()
-                                }
-                            }
-                        }
-                    }
-                    else -> {}
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.invitePlayers(selectedIds.toList())
-                        showInviteDialog = false
-                    },
-                    enabled = selectedIds.isNotEmpty()
-                ) { Text("Enviar") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showInviteDialog = false }) { Text("Cancelar") }
-            }
+        PlayerMultiSelectDialog(
+            title = "Invitar jugadores",
+            players = (availablePlayers as? UiState.Success)?.data
+                ?: if (availablePlayers is UiState.Loading) null else emptyList(),
+            confirmButtonText = "Enviar",
+            onConfirm = { viewModel.invitePlayers(it) },
+            onDismiss = { showInviteDialog = false }
         )
     }
 
@@ -804,4 +764,57 @@ fun MatchCard(
             }
         }
     }
+}
+
+@Composable
+fun PlayerMultiSelectDialog(
+    title: String,
+    players: List<Player>?,
+    confirmButtonText: String,
+    onConfirm: (List<String>) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selected by remember { mutableStateOf(setOf<String>()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            when {
+                players == null -> CircularProgressIndicator()
+                players.isEmpty() ->
+                    Text("No hay jugadores disponibles", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else -> {
+                    LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                        items(players, key = { it.id }) { player ->
+                            ListItem(
+                                headlineContent  = { Text(player.name) },
+                                supportingContent = { Text(player.position.ifBlank { "Sin posición" }) },
+                                trailingContent = {
+                                    Checkbox(
+                                        checked = player.id in selected,
+                                        onCheckedChange = { checked ->
+                                            selected = if (checked) selected + player.id else selected - player.id
+                                        }
+                                    )
+                                }
+                            )
+                            HorizontalDivider()
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onConfirm(selected.toList())
+                    onDismiss()
+                },
+                enabled = selected.isNotEmpty() && players != null
+            ) { Text(confirmButtonText) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        }
+    )
 }
