@@ -49,6 +49,9 @@ class HomeViewModel @Inject constructor(
     private val _upcomingMatches = MutableStateFlow<UiState<List<Match>>>(UiState.Loading)
     val upcomingMatches = _upcomingMatches.asStateFlow()
 
+    private val _myMatches = MutableStateFlow<UiState<List<Match>>>(UiState.Loading)
+    val myMatches = _myMatches.asStateFlow()
+
     private val _pendingInvitations = MutableStateFlow<UiState<List<MatchInvitation>>>(UiState.Loading)
     val pendingInvitations = _pendingInvitations.asStateFlow()
 
@@ -64,8 +67,14 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 matchRepository.getUpcomingMatches().collect { list ->
+                    val myId = resolver.id()
                     _upcomingMatches.value = UiState.Success(list.take(5))
                     _matchesById.value = list.associateBy { it.id }
+                    _myMatches.value = UiState.Success(
+                        list.filter { m ->
+                            myId != null && (m.organizerId == myId || myId in m.participantIds)
+                        }
+                    )
                 }
             } catch (e: Exception) {
                 _upcomingMatches.value = UiState.Error(e.message ?: "Error cargando partidos")
@@ -96,12 +105,17 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun respondInvitation(invId: String, accepted: Boolean) {
+    fun respondInvitation(inv: MatchInvitation, accepted: Boolean) {
         viewModelScope.launch {
-            invitationRepository.updateInvitationStatus(
-                invId,
-                if (accepted) "accepted" else "rejected"
-            )
+            val status = if (accepted) "accepted" else "rejected"
+            invitationRepository.updateInvitationStatus(inv.id, status)
+            if (accepted) {
+                val myId = resolver.id()
+                if (myId != null && inv.matchId.isNotBlank()) {
+                    matchRepository.addMatchParticipant(inv.matchId, myId)
+                }
+            }
+            load()
         }
     }
 
@@ -202,11 +216,35 @@ fun HomeDashboard(
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val matches     by viewModel.upcomingMatches.collectAsState()
+    val myMatches   by viewModel.myMatches.collectAsState()
     val invitations by viewModel.pendingInvitations.collectAsState()
     val matchesById by viewModel.matchesById.collectAsState()
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
 
+        Text("Mis partidos", style = MaterialTheme.typography.titleLarge)
+        Spacer(Modifier.height(8.dp))
+
+        when (myMatches) {
+            is UiState.Loading -> CircularProgressIndicator()
+            is UiState.Error   -> Text((myMatches as UiState.Error).message, color = MaterialTheme.colorScheme.error)
+            is UiState.Success -> {
+                val list = (myMatches as UiState.Success).data
+                if (list.isEmpty()) {
+                    Text("Aún no tenés partidos", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    list.forEach { match ->
+                        MatchSummaryCard(match = match, onClick = {
+                            navController.navigate(Routes.matchDetail(match.id))
+                        })
+                        Spacer(Modifier.height(8.dp))
+                    }
+                }
+            }
+            else ->{}
+        }
+
+        Spacer(Modifier.height(24.dp))
         Text("Próximos partidos", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(8.dp))
 
@@ -245,8 +283,8 @@ fun HomeDashboard(
                         InvitationCard(
                             invitation = inv,
                             matchTitle = matchesById[inv.matchId]?.title,
-                            onAccept = { viewModel.respondInvitation(inv.id, true) },
-                            onReject = { viewModel.respondInvitation(inv.id, false) }
+                            onAccept = { viewModel.respondInvitation(inv, true) },
+                            onReject = { viewModel.respondInvitation(inv, false) }
                         )
                         Spacer(Modifier.height(8.dp))
                     }
