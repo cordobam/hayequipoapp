@@ -2,6 +2,8 @@ package com.example.hayequipoapp.ui.common
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Star
@@ -15,6 +17,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.example.hayequipoapp.data.model.Player
 import com.example.hayequipoapp.ui.theme.GreenField
 import com.example.hayequipoapp.ui.theme.YellowCard
 
@@ -158,8 +161,62 @@ fun DropdownField(
                             expanded = false
                         }
                     )
+}
+}
+
+// ─── PlayerMultiSelectDialog (selección múltiple de jugadores) ──
+@Composable
+fun PlayerMultiSelectDialog(
+    title: String,
+    players: List<Player>?,
+    confirmButtonText: String,
+    onConfirm: (List<String>) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selected by remember { mutableStateOf(setOf<String>()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            when {
+                players == null -> CircularProgressIndicator()
+                players.isEmpty() ->
+                    Text("No hay jugadores disponibles", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else -> {
+                    LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                        items(players, key = { it.id }) { player ->
+                            ListItem(
+                                headlineContent  = { Text(player.name) },
+                                supportingContent = { Text(player.position.ifBlank { "Sin posición" }) },
+                                trailingContent = {
+                                    Checkbox(
+                                        checked = player.id in selected,
+                                        onCheckedChange = { checked ->
+                                            selected = if (checked) selected + player.id else selected - player.id
+                                        }
+                                    )
+                                }
+                            )
+                            HorizontalDivider()
+                        }
+                    }
                 }
             }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onConfirm(selected.toList())
+                    onDismiss()
+                },
+                enabled = selected.isNotEmpty() && players != null
+            ) { Text(confirmButtonText) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        }
+    )
+}
         }
     }
 }

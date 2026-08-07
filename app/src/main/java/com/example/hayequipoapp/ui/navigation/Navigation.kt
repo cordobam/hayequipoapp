@@ -180,7 +180,11 @@ fun HayEquipoNavHost(navController: NavHostController, startDestination: String)
             arguments = listOf(navArgument("groupId") { type = NavType.StringType })
         ) { back ->
             val groupId = back.arguments?.getString("groupId") ?: return@composable
-            FriendGroupDetailScreen(groupId = groupId, onBack = { navController.popBackStack() })
+            FriendGroupDetailScreen(
+                groupId = groupId,
+                onBack = { navController.popBackStack() },
+                onGroupDeleted = { navController.popBackStack() }
+            )
         }
     }
 }
