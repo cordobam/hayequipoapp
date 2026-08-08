@@ -59,7 +59,7 @@ fun StarRating(
     value: Int,
     maxValue: Int = 5,
     onStarClick: ((Int) -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier= Modifier
 ) {
     Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         repeat(maxValue) { index ->

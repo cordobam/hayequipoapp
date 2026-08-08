@@ -142,8 +142,7 @@ class FirebaseSource @Inject constructor(
 
     fun getUpcomingMatches(): Flow<List<Match>> =
         matches
-            .whereEqualTo("status", "scheduled")
-            .whereGreaterThan("date", Timestamp.now())
+            .whereIn("status", listOf("scheduled", "confirmed", "in_progress", "finished"))
             .orderBy("date")
             .asFlow()
 
@@ -235,6 +234,11 @@ class FirebaseSource @Inject constructor(
 
     fun getAllStatsForPlayer(playerId: String): Flow<List<PlayerStat>> =
         playerStats.whereEqualTo("playerId", playerId).asFlow()
+
+    suspend fun createOrUpdatePlayerStat(stat: PlayerStat) {
+        val id = if (stat.id.isNotBlank()) stat.id else "${stat.playerId}_${stat.sportId}"
+        playerStats.document(id).set(stat.copy(id = id, updatedAt = Timestamp.now())).await()
+    }
 
     // ─── PlayerReviews ────────────────────────────────────
 

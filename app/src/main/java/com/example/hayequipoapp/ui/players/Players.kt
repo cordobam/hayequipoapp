@@ -39,7 +39,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExitToApp
-import androidx.compose.material.icons.filled.Save
 import androidx.compose.ui.text.input.KeyboardType
 import com.example.hayequipoapp.data.session.SessionManager
 import com.google.firebase.auth.FirebaseAuth
@@ -341,19 +340,32 @@ fun PlayerProfileScreen(
                         }
                     }
                     if (player.showReviews) {
-                        item { SectionHeader("Reseñas") }
-                        when (reviewsState) {
-                            is UiState.Success -> {
-                                val reviews = (reviewsState as UiState.Success).data
-                                if (reviews.isEmpty()) {
-                                    item { Text("Sin reseñas aún", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                                } else {
-                                    items(reviews, key = { it.id }) { review ->
-                                        ReviewCard(review)
+                        item { SectionHeader("Puntos promedio") }
+                        val totalReviews = stats.sumOf { it.totalReviews }
+                        val weighted = stats.sumOf { it.averageReliability * it.totalReviews }
+                        if (totalReviews == 0) {
+                            item { Text("Aún no tiene puntos", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        } else {
+                            val avg = (weighted / totalReviews)
+                            item {
+                                Card(modifier = Modifier.fillMaxWidth()) {
+                                    Column(
+                                        modifier = Modifier.padding(12.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            String.format("%.1f", avg),
+                                            style = MaterialTheme.typography.displayMedium
+                                        )
+                                        StarRating(value = avg.toInt())
+                                        Text(
+                                            "$totalReviews votos",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
                                 }
                             }
-                            else -> item { CircularProgressIndicator() }
                         }
                     }
                     if (isOwnProfile) {

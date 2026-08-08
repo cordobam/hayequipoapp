@@ -3,6 +3,8 @@ package com.example.hayequipoapp.ui.matches
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
@@ -19,6 +21,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.SavedStateHandle
@@ -58,8 +61,22 @@ import com.example.hayequipoapp.data.model.Player
 import com.example.hayequipoapp.data.model.Venue
 import com.example.hayequipoapp.data.session.SessionManager
 import com.example.hayequipoapp.domain.repository.MatchInvitationRepository
+import com.example.hayequipoapp.domain.repository.MatchStatRepository
 import com.example.hayequipoapp.domain.repository.PlayerRepository
+import com.example.hayequipoapp.domain.repository.PlayerStatRepository
+import com.example.hayequipoapp.data.model.MatchStat
+import com.example.hayequipoapp.data.model.PlayerStat
 import com.example.hayequipoapp.ui.common.DropdownField
+import com.example.hayequipoapp.ui.common.StarRating
+
+
+// ─── Datos de reporte del partido ─────────────────────────
+data class PlayerReport(
+    val playerId: String,
+    val goals: Int = 0,
+    val assists: Int = 0,
+    val rating: Double = 0.0
+)
 
 
 // ─── List ViewModel ───────────────────────────────────────
@@ -88,7 +105,9 @@ class MatchListViewModel @Inject constructor(
     fun loadMatches() {
         viewModelScope.launch {
             matchRepository.getUpcomingMatches().collect {
-                _matches.value = UiState.Success(it)
+                _matches.value = UiState.Success(
+                    it.sortedByDescending { m -> m.date }.take(5)
+                )
             }
         }
     }
@@ -109,6 +128,8 @@ class MatchDetailViewModel @Inject constructor(
     private val invitationRepository: MatchInvitationRepository,
     private val playerRepository: PlayerRepository,
     private val sportRepository: SportRepository,
+    private val matchStatRepository: MatchStatRepository,
+    private val playerStatRepository: PlayerStatRepository,
     private val resolver: CurrentPlayerResolver
 ) : ViewModel() {
 
@@ -127,6 +148,7 @@ class MatchDetailViewModel @Inject constructor(
     val allPlayers = _allPlayers.asStateFlow()
 
     private val _myId = MutableStateFlow<String?>(null)
+    val myId = _myId.asStateFlow()
     private val _invitedIds = MutableStateFlow<Set<String>>(emptySet())
 
     private val _availablePlayers = MutableStateFlow<UiState<List<Player>>>(UiState.Loading)
@@ -146,6 +168,12 @@ class MatchDetailViewModel @Inject constructor(
 
     private val _saveTeamsState = MutableStateFlow<UiState<String>?>(null)
     val saveTeamsState = _saveTeamsState.asStateFlow()
+
+    private val _matchStats = MutableStateFlow<Map<String, MatchStat>>(emptyMap())
+    val matchStats = _matchStats.asStateFlow()
+
+    private val _reportState = MutableStateFlow<UiState<String>?>(null)
+    val reportState = _reportState.asStateFlow()
 
     init {
         loadMatch()
@@ -218,6 +246,94 @@ class MatchDetailViewModel @Inject constructor(
             ?.map { it.playerId }
             ?: emptyList()
         _candidates.value = (m.participantIds + acceptedIds).distinct()
+    }
+
+    fun loadMatchStats() {
+        viewModelScope.launch {
+            runCatching {
+                matchStatRepository.getStatsForMatch(matchId).collect { list ->
+                    _matchStats.value = list.associateBy { it.playerId }
+                }
+            }
+        }
+    }
+
+    private fun teamIndexFor(match: Match, playerId: String): Int =
+        match.teams.indexOfFirst { playerId in it.playerIds }
+
+    fun saveReport(
+        data: List<PlayerReport>,
+        teamScores: Map<Int, Int?>
+    ) {
+        val m = (_match.value as? UiState.Success)?.data ?: return
+        val sportId = m.sportId
+        if (sportId.isBlank()) {
+            _reportState.value = UiState.Error("El partido no tiene deporte asociado")
+            return
+        }
+        viewModelScope.launch {
+            _reportState.value = UiState.Loading
+            val winningIndex = teamScores
+                .filterValues { it != null }
+                .maxByOrNull { it.value ?: 0 }
+                ?.key
+
+            var ok = true
+
+            // 1) Guardar MatchStat + acumular PlayerStat por jugador
+            data.forEach { d ->
+                val teamIndex = teamIndexFor(m, d.playerId)
+                val stat = MatchStat(
+                    matchId = matchId,
+                    playerId = d.playerId,
+                    teamIndex = teamIndex,
+                    stats = mapOf("goles" to d.goals, "asistencias" to d.assists),
+                    rating = d.rating,
+                    createdAt = null
+                )
+                if (matchStatRepository.createOrUpdateMatchStat(stat).isFailure) {
+                    ok = false
+                }
+
+                val prev = playerStatRepository.getPlayerStatBySport(d.playerId, sportId)
+                val totalReviews = (prev?.totalReviews ?: 0) + if (d.rating > 0) 1 else 0
+                val avg = if (totalReviews > 0 && d.rating > 0) {
+                    val prevAvg = prev?.averageReliability ?: 0.0
+                    val prevCount = prev?.totalReviews ?: 0
+                    ((prevAvg * prevCount) + d.rating) / totalReviews
+                } else prev?.averageReliability ?: 0.0
+
+                val won = teamIndex >= 0 && winningIndex == teamIndex
+                val lost = teamIndex >= 0 && winningIndex != null && teamIndex != winningIndex
+                val newStat = PlayerStat(
+                    id = "${d.playerId}_$sportId",
+                    playerId = d.playerId,
+                    sportId = sportId,
+                    matchesPlayed = (prev?.matchesPlayed ?: 0) + 1,
+                    matchesWon = (prev?.matchesWon ?: 0) + if (won) 1 else 0,
+                    matchesLost = (prev?.matchesLost ?: 0) + if (lost) 1 else 0,
+                    goals = (prev?.goals ?: 0) + d.goals,
+                    assists = (prev?.assists ?: 0) + d.assists,
+                    averageReliability = avg,
+                    totalReviews = totalReviews,
+                    updatedAt = null
+                )
+                if (playerStatRepository.upsertPlayerStat(newStat).isFailure) ok = false
+            }
+
+            // 2) Guardar scores de equipos
+            val updatedTeams = m.teams.mapIndexed { idx, team ->
+                team.copy(score = teamScores[idx] ?: team.score)
+            }
+            if (updatedTeams.isNotEmpty() && matchRepository.updateMatch(m.copy(teams = updatedTeams)).isFailure) {
+                ok = false
+            }
+
+            _reportState.value = if (ok) UiState.Success("Reporte guardado")
+                else UiState.Error("Algunos datos no se pudieron guardar")
+            loadMatch()
+            loadMatchStats()
+        }
     }
 
     fun saveTeams(teams: List<MatchTeam>) {
@@ -414,10 +530,16 @@ fun MatchDetailScreen(
     val candidates by viewModel.candidates.collectAsState()
     val teamCount by viewModel.teamCount.collectAsState()
     val saveTeamsState by viewModel.saveTeamsState.collectAsState()
+    val myId by viewModel.myId.collectAsState()
+    val matchStats by viewModel.matchStats.collectAsState()
+    val reportState by viewModel.reportState.collectAsState()
 
     var showInviteDialog by remember { mutableStateOf(false) }
     var showTeamsDialog by remember { mutableStateOf(false) }
+    var showReportDialog by remember { mutableStateOf(false) }
     var assignments by remember { mutableStateOf<Map<String, Int?>>(emptyMap()) }
+
+    LaunchedEffect(Unit) { viewModel.loadMatchStats() }
 
     val context = LocalContext.current
     LaunchedEffect(inviteState) {
@@ -427,6 +549,11 @@ fun MatchDetailScreen(
     }
     LaunchedEffect(saveTeamsState) {
         (saveTeamsState as? UiState.Success)?.let {
+            Toast.makeText(context, it.data, Toast.LENGTH_SHORT).show()
+        }
+    }
+    LaunchedEffect(reportState) {
+        (reportState as? UiState.Success)?.let {
             Toast.makeText(context, it.data, Toast.LENGTH_SHORT).show()
         }
     }
@@ -452,6 +579,8 @@ fun MatchDetailScreen(
                     match          = match,
                     onStatusChange = { viewModel.updateStatus(it) },
                     canInvite      = canInvite,
+                    canReport      = match.status == "finished" &&
+                        (myId != null && (myId in match.participantIds || match.organizerId == myId)),
                     invitations    = invitations,
                     allPlayers     = allPlayers,
                     onInviteClick  = {
@@ -465,6 +594,7 @@ fun MatchDetailScreen(
                         assignments = init
                         showTeamsDialog = true
                     },
+                    onReportClick  = { showReportDialog = true },
                     modifier       = Modifier.padding(padding)
                 )
             }
@@ -494,11 +624,17 @@ fun MatchDetailScreen(
                     LazyColumn(modifier = Modifier.heightIn(max = 480.dp)) {
                         items(candidates, key = { it }) { playerId ->
                             val name = allPlayers.firstOrNull { it.id == playerId }?.name ?: playerId
-                            Row(
+                            Column(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text(name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    name,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                                 val selected = assignments[playerId]
                                 DropdownField(
                                     value = if (selected == null) "Sin equipo"
@@ -509,17 +645,17 @@ fun MatchDetailScreen(
                                         repeat(teamCount) { i -> add("Equipo ${i + 1}") }
                                     },
                                     onOptionSelected = { itemIndex ->
-                                        val teamValue: Int? = if (itemIndex == 0) null else itemIndex
+                                        val teamValue: Int? = if (itemIndex == 0) null else itemIndex - 1
                                         assignments = assignments + (playerId to teamValue)
                                     },
-                                    modifier = Modifier.widthIn(min = 150.dp)
+                                    modifier = Modifier.fillMaxWidth()
                                 )
                             }
                         }
                     }
                 }
             },
-            confirmButton = {
+confirmButton = {
                 TextButton(
                     onClick = {
                         val teams = (0 until teamCount).map { idx ->
@@ -538,6 +674,24 @@ fun MatchDetailScreen(
             }
         )
     }
+
+if (showReportDialog) {
+        val match = (state as? UiState.Success)?.data
+        if (match != null) {
+            ReportMatchDialog(
+                players = candidates,
+                allPlayers = allPlayers,
+                match = match,
+                existingStats = matchStats,
+                isSaving = reportState is UiState.Loading,
+                error = (reportState as? UiState.Error)?.message,
+                onConfirm = { data, teamScores ->
+                    viewModel.saveReport(data, teamScores)
+                },
+                onDismiss = { showReportDialog = false }
+            )
+        }
+    }
 }
 
 @Composable
@@ -545,13 +699,20 @@ private fun MatchDetailContent(
     match: Match,
     onStatusChange: (String) -> Unit,
     canInvite: Boolean,
+    canReport: Boolean = false,
     invitations: UiState<List<MatchInvitation>>,
     allPlayers: List<Player>,
     onInviteClick: () -> Unit,
     onTeamsClick: () -> Unit,
+    onReportClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        modifier = modifier
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         Text(match.title, style = MaterialTheme.typography.displayLarge)
         StatusChip(match.status)
         Text("Duración: ${match.durationMinutes} min", style = MaterialTheme.typography.bodyMedium)
@@ -574,6 +735,15 @@ private fun MatchDetailContent(
                 Icon(Icons.Filled.Group, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Armar equipos")
+            }
+        }
+
+        if (canReport) {
+            Spacer(Modifier.height(4.dp))
+            Button(onClick = onReportClick, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Reportar partido")
             }
         }
 
@@ -629,6 +799,124 @@ private fun MatchDetailContent(
             }
         }
     }
+}
+
+// ─── ReportMatchDialog ────────────────────────────────────
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReportMatchDialog(
+    players: List<String>,
+    allPlayers: List<Player>,
+    match: Match,
+    existingStats: Map<String, MatchStat>,
+    isSaving: Boolean,
+    error: String?,
+    onConfirm: (List<PlayerReport>, Map<Int, Int?>) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var goals by remember { mutableStateOf(mutableMapOf<String, String>()) }
+    var assists by remember { mutableStateOf(mutableMapOf<String, String>()) }
+    var ratings by remember { mutableStateOf<Map<String, Int>>(
+        existingStats.mapValues { it.value.rating.toInt() }
+    ) }
+    var teamScores by remember { mutableStateOf(mutableMapOf<Int, String>()) }
+
+    fun defaultGoals(playerId: String): String =
+        existingStats[playerId]?.stats?.get("goles")?.toString() ?: ""
+
+    fun defaultAssists(playerId: String): String =
+        existingStats[playerId]?.stats?.get("asistencias")?.toString() ?: ""
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Reportar partido") },
+        text = {
+            Column {
+                if (error != null) {
+                    Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(8.dp))
+                }
+                if (match.teams.isNotEmpty()) {
+                    Text("Scores de equipos", style = MaterialTheme.typography.titleSmall)
+                    Spacer(Modifier.height(4.dp))
+                    match.teams.forEachIndexed { idx, team ->
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Text(team.name.ifBlank { "Equipo ${idx + 1}" }, modifier = Modifier.weight(1f))
+                            OutlinedTextField(
+                                value = teamScores.getOrPut(idx) { team.score?.toString() ?: "" },
+                                onValueChange = { teamScores[idx] = it.filter(Char::isDigit) },
+                                label = { Text("Score") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true,
+                                modifier = Modifier.width(90.dp)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+
+                LazyColumn(modifier = Modifier.heightIn(max = 420.dp)) {
+                    items(players, key = { it }) { playerId ->
+                        val name = allPlayers.firstOrNull { it.id == playerId }?.name ?: playerId
+                        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(name, style = MaterialTheme.typography.titleMedium)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(
+                                        value = goals[playerId] ?: defaultGoals(playerId),
+                                        onValueChange = { goals[playerId] = it.filter(Char::isDigit) },
+                                        label = { Text("Goles") },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    OutlinedTextField(
+                                        value = assists[playerId] ?: defaultAssists(playerId),
+                                        onValueChange = { assists[playerId] = it.filter(Char::isDigit) },
+                                        label = { Text("Asistencias") },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Puntos", modifier = Modifier.weight(1f))
+                                    StarRating(
+                                        value = ratings[playerId] ?: 0,
+                                        onStarClick = { v ->
+                                            ratings = ratings + (playerId to v)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val data = players.map { pid ->
+                        PlayerReport(
+                            playerId = pid,
+                            goals = goals[pid]?.toIntOrNull() ?: 0,
+                            assists = assists[pid]?.toIntOrNull() ?: 0,
+                            rating = (ratings[pid] ?: 0).toDouble()
+                        )
+                    }
+                    val scores = match.teams.indices.associateWith { idx ->
+                        teamScores[idx]?.toIntOrNull()
+                    }
+                    onConfirm(data, scores)
+                },
+                enabled = !isSaving
+            ) { Text("Guardar reporte") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        }
+    )
 }
 
 // ─── MatchFormScreen ──────────────────────────────────────
