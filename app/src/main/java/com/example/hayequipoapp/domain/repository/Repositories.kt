@@ -74,6 +74,7 @@ interface MatchStatRepository {
 interface PlayerStatRepository {
     suspend fun getPlayerStatBySport(playerId: String, sportId: String): PlayerStat?
     fun getAllStatsForPlayer(playerId: String): Flow<List<PlayerStat>>
+    suspend fun upsertPlayerStat(stat: PlayerStat): Result<Unit>
 }
 
 interface PlayerReviewRepository {

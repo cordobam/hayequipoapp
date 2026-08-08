@@ -7,6 +7,7 @@ import com.example.hayequipoapp.data.model.MatchInvitation
 import com.example.hayequipoapp.data.model.MatchStat
 import com.example.hayequipoapp.data.model.Player
 import com.example.hayequipoapp.data.model.PlayerReview
+import com.example.hayequipoapp.data.model.PlayerStat
 import com.example.hayequipoapp.data.model.Sport
 import com.example.hayequipoapp.data.model.Venue
 import com.example.hayequipoapp.domain.repository.*
@@ -79,6 +80,8 @@ class PlayerStatRepositoryImpl @Inject constructor(private val source: FirebaseS
     override suspend fun getPlayerStatBySport(playerId: String, sportId: String) =
         source.getPlayerStatBySport(playerId, sportId)
     override fun getAllStatsForPlayer(playerId: String) = source.getAllStatsForPlayer(playerId)
+    override suspend fun upsertPlayerStat(stat: PlayerStat) =
+        runCatching { source.createOrUpdatePlayerStat(stat) }
 }
 
 class PlayerReviewRepositoryImpl @Inject constructor(private val source: FirebaseSource) : PlayerReviewRepository {

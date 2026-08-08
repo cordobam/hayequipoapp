@@ -1,21 +1,28 @@
 package com.example.hayequipoapp.ui.venues
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -23,23 +30,40 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
+import com.example.hayequipoapp.data.model.ScheduleDay
+import com.example.hayequipoapp.data.model.Sport
+import com.example.hayequipoapp.data.model.Venue
+import com.example.hayequipoapp.data.session.CurrentPlayerResolver
+import com.example.hayequipoapp.data.session.SessionManager
 import com.example.hayequipoapp.domain.repository.VenueRepository
 import com.example.hayequipoapp.domain.repository.SportRepository
-import com.example.hayequipoapp.data.model.Sport
 import com.example.hayequipoapp.ui.common.EmptyScreen
 import com.example.hayequipoapp.ui.common.ErrorScreen
 import com.example.hayequipoapp.ui.common.LoadingScreen
 import com.example.hayequipoapp.ui.common.SectionHeader
+import com.example.hayequipoapp.ui.common.StarRating
 import com.example.hayequipoapp.ui.common.UiState
-import com.example.hayequipoapp.data.model.Venue
+import com.google.firebase.firestore.GeoPoint
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-import com.example.hayequipoapp.data.session.SessionManager
-import androidx.compose.foundation.clickable
-import androidx.compose.material.icons.filled.ArrowDropDown
+
+
+private val DAY_KEYS = listOf(
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
+)
+
+private val DAY_LABELS = mapOf(
+    "monday" to "Lunes", "tuesday" to "Martes", "wednesday" to "Miércoles",
+    "thursday" to "Jueves", "friday" to "Viernes",
+    "saturday" to "Sábado", "sunday" to "Domingo"
+)
+
+private fun defaultSchedules(): Map<String, ScheduleDay> =
+    DAY_KEYS.associateWith { ScheduleDay() }
 
 
 // ─── List ViewModel ───────────────────────────────────────
@@ -109,7 +133,8 @@ class VenueDetailViewModel @Inject constructor(
 @HiltViewModel
 class VenueFormViewModel @Inject constructor(
     private val venueRepository: VenueRepository,
-    private val sportRepository: SportRepository
+    private val sportRepository: SportRepository,
+    private val resolver: CurrentPlayerResolver
 ) : ViewModel() {
 
     var name by mutableStateOf("")
@@ -118,6 +143,12 @@ class VenueFormViewModel @Inject constructor(
     var pricePerHour by mutableStateOf("0")
     var amenitiesText by mutableStateOf("")
     var selectedSportIds by mutableStateOf<List<String>>(emptyList())
+    var latitude by mutableStateOf("")
+    var longitude by mutableStateOf("")
+    var photosText by mutableStateOf("")
+    var rating by mutableStateOf(0.0)
+    var schedules by mutableStateOf(defaultSchedules())
+    private var originalCreatedBy = ""
 
     private val _isEditing = MutableStateFlow(false)
     val isEditing = _isEditing.asStateFlow()
@@ -147,6 +178,17 @@ class VenueFormViewModel @Inject constructor(
         }
     }
 
+    fun toggleDayOpen(day: String) {
+        val current = schedules[day] ?: ScheduleDay()
+        schedules = schedules + (day to current.copy(isOpen = !current.isOpen))
+    }
+
+    fun setDayTime(day: String, isOpen: Boolean, time: String) {
+        val current = schedules[day] ?: ScheduleDay()
+        schedules = schedules + (day to
+            (if (isOpen) current.copy(open = time) else current.copy(close = time)))
+    }
+
     fun loadVenue(venueId: String) {
         if (venueId.isBlank()) return
         viewModelScope.launch {
@@ -161,6 +203,13 @@ class VenueFormViewModel @Inject constructor(
                     pricePerHour = if (venue.pricePerHour > 0) venue.pricePerHour.toString() else "0"
                     amenitiesText = venue.amenities.joinToString(", ")
                     selectedSportIds = venue.sportIds
+                    originalCreatedBy = venue.createdBy
+                    latitude = venue.location?.latitude?.toString() ?: ""
+                    longitude = venue.location?.longitude?.toString() ?: ""
+                    photosText = venue.photos.joinToString(", ")
+                    rating = venue.rating
+                    schedules = if (venue.schedules.isEmpty()) defaultSchedules()
+                    else DAY_KEYS.associateWith { venue.schedules[it] ?: ScheduleDay() }
                 }
             } catch (_: Exception) { }
             _isLoading.value = false
@@ -170,14 +219,22 @@ class VenueFormViewModel @Inject constructor(
     fun save(venueId: String) {
         viewModelScope.launch {
             _saveState.value = UiState.Loading
+            val lat = latitude.trim().toDoubleOrNull()
+            val lng = longitude.trim().toDoubleOrNull()
+            val location = if (lat != null && lng != null) GeoPoint(lat, lng) else null
             val venue = Venue(
                 id = venueId,
                 name = name.trim(),
                 address = address.trim(),
+                location = location,
                 phone = phone.trim(),
+                photos = photosText.split(",").map { it.trim() }.filter { it.isNotBlank() },
                 pricePerHour = pricePerHour.toDoubleOrNull() ?: 0.0,
                 amenities = amenitiesText.split(",").map { it.trim() }.filter { it.isNotBlank() },
-                sportIds = selectedSportIds
+                sportIds = selectedSportIds,
+                rating = rating,
+                schedules = schedules,
+                createdBy = if (venueId.isBlank()) (resolver.id() ?: "") else originalCreatedBy
             )
             val result = if (venueId.isBlank()) {
                 venueRepository.createVenue(venue)
@@ -339,6 +396,7 @@ fun VenueFormScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     val saveState by viewModel.saveState.collectAsState()
     var showSportDialog by remember { mutableStateOf(false) }
+    var timePickerTarget by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
 
     val sportsState by viewModel.sports.collectAsState()
     val sportList = (sportsState as? UiState.Success)?.data ?: emptyList()
@@ -476,6 +534,90 @@ fun VenueFormScreen(
                     )
                 }
 
+                Spacer(Modifier.height(8.dp))
+
+                SectionHeader("Horarios")
+                DAY_KEYS.forEach { key ->
+                    val day = viewModel.schedules[key] ?: ScheduleDay()
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            DAY_LABELS.getValue(key),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (day.isOpen) {
+                            Text(
+                                "${day.open} - ${day.close}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(end = 4.dp)
+                            )
+                            IconButton(
+                                onClick = { timePickerTarget = key to true },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.WbSunny,
+                                    contentDescription = "Hora de apertura ${DAY_LABELS.getValue(key)}",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = { timePickerTarget = key to false },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.NightsStay,
+                                    contentDescription = "Hora de cierre ${DAY_LABELS.getValue(key)}",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = day.isOpen,
+                            onCheckedChange = { viewModel.toggleDayOpen(key) }
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+
+                SectionHeader("Ubicación")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = viewModel.latitude,
+                        onValueChange = { viewModel.latitude = it },
+                        label = { Text("Latitud") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = viewModel.longitude,
+                        onValueChange = { viewModel.longitude = it },
+                        label = { Text("Longitud") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                SectionHeader("Fotos")
+                OutlinedTextField(
+                    value = viewModel.photosText,
+                    onValueChange = { viewModel.photosText = it },
+                    label = { Text("URLs de fotos (separadas por coma)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                SectionHeader("Rating")
+                StarRating(
+                    value = viewModel.rating.toInt(),
+                    onStarClick = { viewModel.rating = it.toDouble() }
+                )
+
                 val errorMsg = (saveState as? UiState.Error)?.message
                 if (errorMsg != null) {
                     Text(errorMsg, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
@@ -496,6 +638,36 @@ fun VenueFormScreen(
                     Text(if (isEditing) "Guardar cambios" else "Crear sede")
                 }
             }
+        }
+    }
+
+    val target = timePickerTarget
+    if (target != null) {
+        val (dayKey, isOpen) = target
+        val current = viewModel.schedules[dayKey] ?: ScheduleDay()
+        val currentTime = if (isOpen) current.open else current.close
+        val parts = currentTime.split(":").mapNotNull { it.toIntOrNull() }
+        val timePickerState = rememberTimePickerState(
+            initialHour = parts.getOrNull(0) ?: 8,
+            initialMinute = parts.getOrNull(1) ?: 0
+        )
+        TimePickerDialog(
+            onDismissRequest = { timePickerTarget = null },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.setDayTime(
+                        dayKey, isOpen,
+                        String.format("%02d:%02d", timePickerState.hour, timePickerState.minute)
+                    )
+                    timePickerTarget = null
+                }) { Text("Aceptar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { timePickerTarget = null }) { Text("Cancelar") }
+            },
+            title = { Text(if (isOpen) "Hora de apertura" else "Hora de cierre") }
+        ) {
+            TimePicker(state = timePickerState)
         }
     }
 }
@@ -522,18 +694,33 @@ private fun VenueDetailContent(venue: Venue, modifier: Modifier = Modifier) {
                 Text(String.format("%.1f", venue.rating), style = MaterialTheme.typography.bodyMedium)
             }
         }
+        if (venue.location != null) {
+            Text(
+                "Ubicación: ${String.format("%.6f", venue.location.latitude)}, ${String.format("%.6f", venue.location.longitude)}",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+        if (venue.photos.isNotEmpty()) {
+            SectionHeader("Fotos")
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(venue.photos) { url ->
+                    AsyncImage(
+                        model = url,
+                        contentDescription = "Foto de ${venue.name}",
+                        modifier = Modifier
+                            .size(120.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                    )
+                }
+            }
+        }
         if (venue.amenities.isNotEmpty()) {
             SectionHeader("Servicios")
             Text(venue.amenities.joinToString(" · "), style = MaterialTheme.typography.bodyMedium)
         }
         if (venue.schedules.isNotEmpty()) {
             SectionHeader("Horarios")
-            val days = mapOf(
-                "monday" to "Lunes", "tuesday" to "Martes", "wednesday" to "Miércoles",
-                "thursday" to "Jueves", "friday" to "Viernes",
-                "saturday" to "Sábado", "sunday" to "Domingo"
-            )
-            days.forEach { (key, label) ->
+            DAY_LABELS.forEach { (key, label) ->
                 venue.schedules[key]?.let { day ->
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(label, style = MaterialTheme.typography.bodyMedium)
