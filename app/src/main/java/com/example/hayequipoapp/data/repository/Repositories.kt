@@ -11,24 +11,29 @@ import com.example.hayequipoapp.data.model.PlayerStat
 import com.example.hayequipoapp.data.model.Sport
 import com.example.hayequipoapp.data.model.Venue
 import com.example.hayequipoapp.domain.repository.*
+import android.util.Log
 import javax.inject.Inject
+
+private const val TAG = "Repositories"
+
+private inline fun <T> logged(label: String, block: () -> T): Result<T> =
+    runCatching(block).onFailure { Log.e(TAG, "Fallo en $label", it) }
 
 class SportRepositoryImpl @Inject constructor(private val source: FirebaseSource) : SportRepository {
     override fun getSports() = source.getSports()
     override suspend fun getSportById(sportId: String) = source.getSportById(sportId)
-    override suspend fun createSport(sport: Sport) = runCatching { source.createSport(sport) }
-    override suspend fun updateSport(sport: Sport) = runCatching { source.updateSport(sport) }
-    override suspend fun deleteSport(sportId: String) = runCatching { source.deleteSport(sportId) }
-
+    override suspend fun createSport(sport: Sport) = logged("createSport") { source.createSport(sport) }
+    override suspend fun updateSport(sport: Sport) = logged("updateSport") { source.updateSport(sport) }
+    override suspend fun deleteSport(sportId: String) = logged("deleteSport") { source.deleteSport(sportId) }
 }
 
 class VenueRepositoryImpl @Inject constructor(private val source: FirebaseSource) : VenueRepository {
     override fun getVenues() = source.getVenues()
     override fun getVenuesBySport(sportId: String) = source.getVenuesBySport(sportId)
     override suspend fun getVenueById(venueId: String) = source.getVenueById(venueId)
-    override suspend fun createVenue(venue: Venue) = runCatching { source.createVenue(venue) }
-    override suspend fun updateVenue(venue: Venue) = runCatching { source.updateVenue(venue) }
-    override suspend fun deleteVenue(venueId: String) = runCatching { source.deleteVenue(venueId) }
+    override suspend fun createVenue(venue: Venue) = logged("createVenue") { source.createVenue(venue) }
+    override suspend fun updateVenue(venue: Venue) = logged("updateVenue") { source.updateVenue(venue) }
+    override suspend fun deleteVenue(venueId: String) = logged("deleteVenue") { source.deleteVenue(venueId) }
 }
 
 class PlayerRepositoryImpl @Inject constructor(private val source: FirebaseSource) : PlayerRepository {
@@ -36,17 +41,17 @@ class PlayerRepositoryImpl @Inject constructor(private val source: FirebaseSourc
     override fun getAvailablePlayersBySport(sportId: String) = source.getAvailablePlayersBySport(sportId)
     override suspend fun getPlayerById(playerId: String) = source.getPlayerById(playerId)
     override suspend fun getPlayerByUid(uid: String) = source.getPlayerByUid(uid)
-    override suspend fun createPlayer(player: Player) = runCatching { source.createPlayer(player) }
-    override suspend fun updatePlayer(player: Player) = runCatching { source.updatePlayer(player) }
-    override suspend fun deletePlayer(playerId: String) = runCatching { source.deletePlayer(playerId) }
+    override suspend fun createPlayer(player: Player) = logged("createPlayer") { source.createPlayer(player) }
+    override suspend fun updatePlayer(player: Player) = logged("updatePlayer") { source.updatePlayer(player) }
+    override suspend fun deletePlayer(playerId: String) = logged("deletePlayer") { source.deletePlayer(playerId) }
 }
 
 class FriendGroupRepositoryImpl @Inject constructor(private val source: FirebaseSource) : FriendGroupRepository {
     override fun getFriendGroupsByPlayer(playerId: String) = source.getFriendGroupsByPlayer(playerId)
     override suspend fun getFriendGroupById(groupId: String) = source.getFriendGroupById(groupId)
-    override suspend fun createFriendGroup(group: FriendGroup) = runCatching { source.createFriendGroup(group) }
-    override suspend fun updateFriendGroup(group: FriendGroup) = runCatching { source.updateFriendGroup(group) }
-    override suspend fun deleteFriendGroup(groupId: String) = runCatching { source.deleteFriendGroup(groupId) }
+    override suspend fun createFriendGroup(group: FriendGroup) = logged("createFriendGroup") { source.createFriendGroup(group) }
+    override suspend fun updateFriendGroup(group: FriendGroup) = logged("updateFriendGroup") { source.updateFriendGroup(group) }
+    override suspend fun deleteFriendGroup(groupId: String) = logged("deleteFriendGroup") { source.deleteFriendGroup(groupId) }
 }
 
 class MatchRepositoryImpl @Inject constructor(private val source: FirebaseSource) : MatchRepository {
@@ -54,26 +59,27 @@ class MatchRepositoryImpl @Inject constructor(private val source: FirebaseSource
     override fun getMatchesBySport(sportId: String) = source.getMatchesBySport(sportId)
     override fun getMatchesForPlayer(playerId: String) = source.getMatchesForPlayer(playerId)
     override suspend fun getMatchById(matchId: String) = source.getMatchById(matchId)
-    override suspend fun createMatch(match: Match) = runCatching { source.createMatch(match) }
-    override suspend fun updateMatch(match: Match) = runCatching { source.updateMatch(match) }
+    override suspend fun createMatch(match: Match) = logged("createMatch") { source.createMatch(match) }
+    override suspend fun updateMatch(match: Match) = logged("updateMatch") { source.updateMatch(match) }
     override suspend fun updateMatchStatus(matchId: String, status: String) =
-        runCatching { source.updateMatchStatus(matchId, status) }
+        logged("updateMatchStatus") { source.updateMatchStatus(matchId, status) }
     override suspend fun addMatchParticipant(matchId: String, playerId: String) =
-        runCatching { source.addMatchParticipant(matchId, playerId) }
+        logged("addMatchParticipant") { source.addMatchParticipant(matchId, playerId) }
 }
 
 class MatchInvitationRepositoryImpl @Inject constructor(private val source: FirebaseSource) : MatchInvitationRepository {
     override fun getPendingInvitationsForPlayer(playerId: String) = source.getPendingInvitationsForPlayer(playerId)
     override fun getInvitationsForMatch(matchId: String) = source.getInvitationsForMatch(matchId)
-    override suspend fun createInvitation(invitation: MatchInvitation) = runCatching { source.createInvitation(invitation) }
+    override suspend fun createInvitation(invitation: MatchInvitation) = logged("createInvitation") { source.createInvitation(invitation) }
     override suspend fun updateInvitationStatus(invitationId: String, status: String) =
-        runCatching { source.updateInvitationStatus(invitationId, status) }
+        logged("updateInvitationStatus") { source.updateInvitationStatus(invitationId, status) }
 }
 
 class MatchStatRepositoryImpl @Inject constructor(private val source: FirebaseSource) : MatchStatRepository {
     override fun getStatsForMatch(matchId: String) = source.getStatsForMatch(matchId)
     override fun getStatsForPlayer(playerId: String) = source.getStatsForPlayer(playerId)
-    override suspend fun createOrUpdateMatchStat(stat: MatchStat) = runCatching { source.createOrUpdateMatchStat(stat) }
+    override suspend fun createOrUpdateMatchStat(stat: MatchStat) =
+        logged("createOrUpdateMatchStat") { source.createOrUpdateMatchStat(stat) }
 }
 
 class PlayerStatRepositoryImpl @Inject constructor(private val source: FirebaseSource) : PlayerStatRepository {
@@ -81,12 +87,12 @@ class PlayerStatRepositoryImpl @Inject constructor(private val source: FirebaseS
         source.getPlayerStatBySport(playerId, sportId)
     override fun getAllStatsForPlayer(playerId: String) = source.getAllStatsForPlayer(playerId)
     override suspend fun upsertPlayerStat(stat: PlayerStat) =
-        runCatching { source.createOrUpdatePlayerStat(stat) }
+        logged("upsertPlayerStat") { source.createOrUpdatePlayerStat(stat) }
 }
 
 class PlayerReviewRepositoryImpl @Inject constructor(private val source: FirebaseSource) : PlayerReviewRepository {
     override fun getReviewsForPlayer(reviewedId: String) = source.getReviewsForPlayer(reviewedId)
     override fun getReviewsForMatch(matchId: String) = source.getReviewsForMatch(matchId)
-    override suspend fun createReview(review: PlayerReview) = runCatching { source.createReview(review) }
-    override suspend fun deleteReview(reviewId: String) = runCatching { source.deleteReview(reviewId) }
+    override suspend fun createReview(review: PlayerReview) = logged("createReview") { source.createReview(review) }
+    override suspend fun deleteReview(reviewId: String) = logged("deleteReview") { source.deleteReview(reviewId) }
 }

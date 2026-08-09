@@ -17,10 +17,15 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.hayequipoapp.domain.repository.MatchInvitationRepository
 import com.example.hayequipoapp.domain.repository.MatchRepository
+import com.example.hayequipoapp.domain.repository.SportRepository
+import com.example.hayequipoapp.domain.repository.VenueRepository
 import com.example.hayequipoapp.data.model.Match
 import com.example.hayequipoapp.data.model.MatchInvitation
+import com.example.hayequipoapp.data.model.Sport
+import com.example.hayequipoapp.data.model.Venue
 import com.example.hayequipoapp.data.session.CurrentPlayerResolver
 import com.example.hayequipoapp.ui.common.UiState
+import com.example.hayequipoapp.ui.matches.MatchCard
 import com.example.hayequipoapp.ui.navigation.HayEquipoNavHost
 import com.example.hayequipoapp.ui.navigation.Routes
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -42,6 +47,8 @@ import com.example.hayequipoapp.data.session.SessionManager
 class HomeViewModel @Inject constructor(
     private val matchRepository: MatchRepository,
     private val invitationRepository: MatchInvitationRepository,
+    private val sportRepository: SportRepository,
+    private val venueRepository: VenueRepository,
     private val resolver: CurrentPlayerResolver,
     val sessionManager: SessionManager
 ) : ViewModel() {
@@ -58,8 +65,18 @@ class HomeViewModel @Inject constructor(
     private val _matchesById = MutableStateFlow<Map<String, Match>>(emptyMap())
     val matchesById = _matchesById.asStateFlow()
 
+    private val _sportsById = MutableStateFlow<Map<String, Sport>>(emptyMap())
+    val sportsById = _sportsById.asStateFlow()
+
+    private val _venuesById = MutableStateFlow<Map<String, Venue>>(emptyMap())
+    val venuesById = _venuesById.asStateFlow()
+
+    private val _myId = MutableStateFlow<String?>(null)
+    val myId = _myId.asStateFlow()
+
     init {
         load()
+        loadSportVenueMaps()
         warmUpSession()
     }
 
@@ -68,6 +85,7 @@ class HomeViewModel @Inject constructor(
             try {
                 matchRepository.getUpcomingMatches().collect { list ->
                     val myId = resolver.id()
+                    _myId.value = myId
                     _upcomingMatches.value = UiState.Success(list.take(5))
                     _matchesById.value = list.associateBy { it.id }
                     _myMatches.value = UiState.Success(
@@ -90,6 +108,14 @@ class HomeViewModel @Inject constructor(
             } catch (e: Exception) {
                 _pendingInvitations.value = UiState.Error(e.message ?: "Error cargando invitaciones")
             }
+        }
+    }
+
+    fun joinMatch(matchId: String) {
+        val me = _myId.value ?: return
+        viewModelScope.launch {
+            matchRepository.addMatchParticipant(matchId, me)
+            load()
         }
     }
 
@@ -121,6 +147,19 @@ class HomeViewModel @Inject constructor(
 
     private fun warmUpSession() {
         viewModelScope.launch { resolver.id() }
+    }
+
+    private fun loadSportVenueMaps() {
+        viewModelScope.launch {
+            sportRepository.getSports().collect { list ->
+                _sportsById.value = list.associateBy { it.id }
+            }
+        }
+        viewModelScope.launch {
+            venueRepository.getVenues().collect { list ->
+                _venuesById.value = list.associateBy { it.id }
+            }
+        }
     }
 
     fun resolveMyProfileId(onResult: (String) -> Unit) {
@@ -219,6 +258,9 @@ fun HomeDashboard(
     val myMatches   by viewModel.myMatches.collectAsState()
     val invitations by viewModel.pendingInvitations.collectAsState()
     val matchesById by viewModel.matchesById.collectAsState()
+    val sportsById  by viewModel.sportsById.collectAsState()
+    val venuesById  by viewModel.venuesById.collectAsState()
+    val myId        by viewModel.myId.collectAsState()
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
 
@@ -234,9 +276,14 @@ fun HomeDashboard(
                     Text("Aún no tenés partidos", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     list.forEach { match ->
-                        MatchSummaryCard(match = match, onClick = {
-                            navController.navigate(Routes.matchDetail(match.id))
-                        })
+                        MatchCard(
+                            match = match,
+                            myId = myId,
+                            sportName = sportsById[match.sportId]?.name,
+                            venueName = venuesById[match.venueId]?.name,
+                            onClick = { navController.navigate(Routes.matchDetail(match.id)) },
+                            onJoin = { viewModel.joinMatch(match.id) }
+                        )
                         Spacer(Modifier.height(8.dp))
                     }
                 }
@@ -257,9 +304,14 @@ fun HomeDashboard(
                     Text("Sin partidos próximos", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     list.forEach { match ->
-                        MatchSummaryCard(match = match, onClick = {
-                            navController.navigate(Routes.matchDetail(match.id))
-                        })
+                        MatchCard(
+                            match = match,
+                            myId = myId,
+                            sportName = sportsById[match.sportId]?.name,
+                            venueName = venuesById[match.venueId]?.name,
+                            onClick = { navController.navigate(Routes.matchDetail(match.id)) },
+                            onJoin = { viewModel.joinMatch(match.id) }
+                        )
                         Spacer(Modifier.height(8.dp))
                     }
                 }
@@ -291,16 +343,6 @@ fun HomeDashboard(
                 }
             }
             else -> {}
-        }
-    }
-}
-
-@Composable
-private fun MatchSummaryCard(match: Match, onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(match.title, style = MaterialTheme.typography.titleLarge)
-            Text("Deporte: ${match.sportId}", style = MaterialTheme.typography.bodyMedium)
         }
     }
 }

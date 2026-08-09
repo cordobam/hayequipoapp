@@ -55,6 +55,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import android.widget.Toast
+import android.util.Log
 import com.example.hayequipoapp.data.model.MatchInvitation
 import com.example.hayequipoapp.data.model.MatchTeam
 import com.example.hayequipoapp.data.model.Player
@@ -71,6 +72,8 @@ import com.example.hayequipoapp.ui.common.StarRating
 
 
 // ─── Datos de reporte del partido ─────────────────────────
+private const val TAG = "MatchDetail"
+
 data class PlayerReport(
     val playerId: String,
     val goals: Int = 0,
@@ -278,12 +281,14 @@ class MatchDetailViewModel @Inject constructor(
                 .maxByOrNull { it.value ?: 0 }
                 ?.key
 
-            var ok = true
+            var statsFailed = false
+            var scoresFailed = false
 
             // 1) Guardar MatchStat + acumular PlayerStat por jugador
             data.forEach { d ->
                 val teamIndex = teamIndexFor(m, d.playerId)
                 val stat = MatchStat(
+                    id = "${matchId}_${d.playerId}",
                     matchId = matchId,
                     playerId = d.playerId,
                     teamIndex = teamIndex,
@@ -291,9 +296,8 @@ class MatchDetailViewModel @Inject constructor(
                     rating = d.rating,
                     createdAt = null
                 )
-                if (matchStatRepository.createOrUpdateMatchStat(stat).isFailure) {
-                    ok = false
-                }
+                matchStatRepository.createOrUpdateMatchStat(stat)
+                    .onFailure { e -> statsFailed = true; Log.e(TAG, "Error guardando MatchStat de ${d.playerId}", e) }
 
                 val prev = playerStatRepository.getPlayerStatBySport(d.playerId, sportId)
                 val totalReviews = (prev?.totalReviews ?: 0) + if (d.rating > 0) 1 else 0
@@ -318,19 +322,28 @@ class MatchDetailViewModel @Inject constructor(
                     totalReviews = totalReviews,
                     updatedAt = null
                 )
-                if (playerStatRepository.upsertPlayerStat(newStat).isFailure) ok = false
+                playerStatRepository.upsertPlayerStat(newStat)
+                    .onFailure { e -> statsFailed = true; Log.e(TAG, "Error al guardar PlayerStat de ${d.playerId}", e) }
             }
 
             // 2) Guardar scores de equipos
             val updatedTeams = m.teams.mapIndexed { idx, team ->
                 team.copy(score = teamScores[idx] ?: team.score)
             }
-            if (updatedTeams.isNotEmpty() && matchRepository.updateMatch(m.copy(teams = updatedTeams)).isFailure) {
-                ok = false
+            if (updatedTeams.isNotEmpty()) {
+                matchRepository.updateMatch(m.copy(teams = updatedTeams))
+                    .onFailure { e -> scoresFailed = true; Log.e(TAG, "Error al guardar scores de equipos", e) }
             }
 
-            _reportState.value = if (ok) UiState.Success("Reporte guardado")
-                else UiState.Error("Algunos datos no se pudieron guardar")
+            _reportState.value = when {
+                statsFailed && scoresFailed ->
+                    UiState.Error("No se pudieron guardar las estadísticas y los scores de los equipos.\nRevisá la conexión e intentá de nuevo.")
+                statsFailed ->
+                    UiState.Error("No se pudieron guardar las estadísticas de los jugadores.\nRevisá la conexión e intentá de nuevo.")
+                scoresFailed ->
+                    UiState.Error("No se pudieron guardar los scores de los equipos.\nRevisá la conexión e intentá de nuevo.")
+                else -> UiState.Success("Reporte guardado")
+            }
             loadMatch()
             loadMatchStats()
         }
@@ -814,12 +827,12 @@ private fun ReportMatchDialog(
     onConfirm: (List<PlayerReport>, Map<Int, Int?>) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var goals by remember { mutableStateOf(mutableMapOf<String, String>()) }
-    var assists by remember { mutableStateOf(mutableMapOf<String, String>()) }
+    val goals = remember { mutableStateMapOf<String, String>() }
+    val assists = remember { mutableStateMapOf<String, String>() }
     var ratings by remember { mutableStateOf<Map<String, Int>>(
         existingStats.mapValues { it.value.rating.toInt() }
     ) }
-    var teamScores by remember { mutableStateOf(mutableMapOf<Int, String>()) }
+    val teamScores = remember { mutableStateMapOf<Int, String>() }
 
     fun defaultGoals(playerId: String): String =
         existingStats[playerId]?.stats?.get("goles")?.toString() ?: ""
@@ -1132,7 +1145,9 @@ fun MatchCard(
     match: Match,
     myId: String?,
     onClick: () -> Unit,
-    onJoin: () -> Unit
+    onJoin: () -> Unit,
+    sportName: String? = null,
+    venueName: String? = null
 ) {
     Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1142,6 +1157,13 @@ fun MatchCard(
             ) {
                 Text(match.title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
                 StatusChip(match.status)
+            }
+            val infoParts = listOfNotNull(
+                sportName?.let { "Deporte: $it" },
+                venueName?.let { "Sede: $it" }
+            )
+            if (infoParts.isNotEmpty()) {
+                Text(infoParts.joinToString(" · "), style = MaterialTheme.typography.bodyMedium)
             }
             Text("${match.durationMinutes} min · ${match.playersNeeded} jugadores", style = MaterialTheme.typography.bodyMedium)
             if (match.pricePerPlayer > 0) {
