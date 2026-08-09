@@ -222,7 +222,8 @@ class FirebaseSource @Inject constructor(
             .asFlow()
 
     suspend fun createOrUpdateMatchStat(stat: MatchStat) {
-        matchStats.document(stat.id).set(stat).await()
+        val id = if (stat.id.isNotBlank()) stat.id else "${stat.matchId}_${stat.playerId}"
+        matchStats.document(id).set(stat.copy(id = id)).await()
     }
 
     // ─── PlayerStats ──────────────────────────────────────
