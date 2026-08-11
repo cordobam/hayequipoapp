@@ -97,3 +97,8 @@ class PlayerReviewRepositoryImpl @Inject constructor(private val source: Firebas
     override suspend fun createReview(review: PlayerReview) = logged("createReview") { source.createReview(review) }
     override suspend fun deleteReview(reviewId: String) = logged("deleteReview") { source.deleteReview(reviewId) }
 }
+
+class UserRoleRepositoryImpl @Inject constructor(private val source: FirebaseSource) : UserRoleRepository {
+    override suspend fun syncRole(uid: String, role: String) =
+        logged("syncRole") { source.upsertUserRole(uid, role) }
+}

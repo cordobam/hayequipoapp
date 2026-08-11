@@ -406,6 +406,16 @@ class MatchFormViewModel @Inject constructor(
     private val _venues = MutableStateFlow<UiState<List<Venue>>>(UiState.Loading)
     val venues = _venues.asStateFlow()
 
+    private val _preselectedVenue = MutableStateFlow<Venue?>(null)
+    val preselectedVenue = _preselectedVenue.asStateFlow()
+
+    fun loadVenueForMatchForm(venueId: String) {
+        viewModelScope.launch {
+            _preselectedVenue.value =
+                if (venueId.isBlank()) null else venueRepository.getVenueById(venueId)
+        }
+    }
+
     fun loadSports() {                                                                 // ← NUEVO
         viewModelScope.launch {
             sportRepository.getSports().collect {
@@ -938,6 +948,7 @@ private fun ReportMatchDialog(
 fun MatchFormScreen(
     onBack: () -> Unit,
     onManageSports: () -> Unit,
+    preselectedVenueId: String = "",
     viewModel: MatchFormViewModel = hiltViewModel()
 ) {
     val saved by viewModel.saved.collectAsState()
@@ -960,8 +971,23 @@ fun MatchFormScreen(
 
     val venuesState by viewModel.venues.collectAsState()
     val venueList = (venuesState as? UiState.Success)?.data ?: emptyList()
+    val preselectedVenue by viewModel.preselectedVenue.collectAsState()
 
     LaunchedEffect(Unit) { viewModel.loadSports() }
+
+    LaunchedEffect(preselectedVenueId) {
+        if (preselectedVenueId.isNotBlank()) {
+            viewModel.loadVenueForMatchForm(preselectedVenueId)
+        }
+    }
+
+    LaunchedEffect(preselectedVenue) {
+        val v = preselectedVenue ?: return@LaunchedEffect
+        if (sportId.isBlank() && venueId.isBlank()) {
+            sportId = v.sportIds.firstOrNull() ?: ""
+            venueId = v.id
+        }
+    }
 
     LaunchedEffect(sportId) {
         if (sportId.isNotBlank()) {

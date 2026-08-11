@@ -228,16 +228,11 @@ fun HomeScreen(navController: NavController) {
     val currentPlayer by viewModel.sessionManager.currentPlayer.collectAsState()
     val isAdmin = currentPlayer?.role == "admin"
 
-    val filteredNavItems = remember(navItems, isAdmin) {
-        if (isAdmin) navItems
-        else navItems.filter { it.route !in listOf(Routes.VENUE_LIST) }
-    }
-
     Scaffold(
         bottomBar = {
-            if (filteredNavItems.size > 1) {
+            if (navItems.size > 1) {
                 NavigationBar {
-                    filteredNavItems.forEach { item ->
+                    navItems.forEach { item ->
                         NavigationBarItem(
                             selected  = currentRoute == item.route,
                             onClick   = {
@@ -262,7 +257,7 @@ fun HomeScreen(navController: NavController) {
                 composable(Routes.HOME) { HomeDashboard(navController) }
                 composable(Routes.MATCH_LIST) { MatchListScreen(
                     onMatchClick   = { navController.navigate(Routes.matchDetail(it)) },
-                    onNewMatch     = { navController.navigate(Routes.MATCH_FORM) },
+                    onNewMatch     = { navController.navigate(Routes.matchForm()) },
                     onSportsClick  = if (isAdmin) { { navController.navigate(Routes.SPORT_LIST) } }
                     else { {} }
                 ) }
@@ -277,8 +272,7 @@ fun HomeScreen(navController: NavController) {
                 ) }
                 composable(Routes.VENUE_LIST) { VenueListScreen(
                     onVenueClick = { navController.navigate(Routes.venueDetail(it)) },
-                    onNewVenue   = if (isAdmin) { { navController.navigate(Routes.venueForm()) } }
-                    else { {} }
+                    onNewVenue   = { navController.navigate(Routes.venueForm()) }
                 ) }
             }
         }
