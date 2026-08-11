@@ -39,6 +39,7 @@ class FirebaseSource @Inject constructor(
     private val matchStats     get() = db.collection("match_stats")
     private val playerStats    get() = db.collection("player_stats")
     private val playerReviews  get() = db.collection("player_reviews")
+    private val userRoles      get() = db.collection("user_roles")
 
     // ─── Sports ───────────────────────────────────────────
 
@@ -274,6 +275,12 @@ class FirebaseSource @Inject constructor(
 
     suspend fun deleteReview(reviewId: String) {
         playerReviews.document(reviewId).delete().await()
+    }
+
+    // ─── UserRoles ────────────────────────────────────────
+
+    suspend fun upsertUserRole(uid: String, role: String) {
+        userRoles.document(uid).set(mapOf("role" to role)).await()
     }
 }
 

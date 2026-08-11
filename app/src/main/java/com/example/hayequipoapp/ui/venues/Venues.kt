@@ -16,10 +16,12 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.NightsStay
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,7 +40,6 @@ import com.example.hayequipoapp.data.session.CurrentPlayerResolver
 import com.example.hayequipoapp.data.session.SessionManager
 import com.example.hayequipoapp.domain.repository.VenueRepository
 import com.example.hayequipoapp.domain.repository.SportRepository
-import com.example.hayequipoapp.ui.common.EmptyScreen
 import com.example.hayequipoapp.ui.common.ErrorScreen
 import com.example.hayequipoapp.ui.common.LoadingScreen
 import com.example.hayequipoapp.ui.common.SectionHeader
@@ -261,6 +262,7 @@ fun VenueListScreen(
     val state by viewModel.venues.collectAsState()
     val currentPlayer by viewModel.sessionManager.currentPlayer.collectAsState()
     val isAdmin = currentPlayer?.role == "admin"
+    var searchQuery by rememberSaveable { mutableStateOf("") }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Sedes") }) },
@@ -277,24 +279,50 @@ fun VenueListScreen(
             is UiState.Error   -> ErrorScreen((state as UiState.Error).message)
             is UiState.Success -> {
                 val list = (state as UiState.Success).data
-                if (list.isEmpty()) {
-                    EmptyScreen("No hay sedes registradas.")
-                } else {
-                    LazyColumn(
-                        contentPadding = PaddingValues(
-                            top = padding.calculateTopPadding() + 8.dp,
-                            bottom = padding.calculateTopPadding(),
-                            start = 16.dp, end = 16.dp
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(list, key = { it.id }) { venue ->
-                            VenueCard(
-                                venue = venue,
-                                onClick = { onVenueClick(venue.id) },
-                                onDelete = { viewModel.deleteVenue(venue.id) },
-                                isAdmin = isAdmin
+                val filtered = if (searchQuery.isBlank()) list
+                    else list.filter { it.name.contains(searchQuery, ignoreCase = true) }
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                ) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        label = { Text("Buscar sede") },
+                        placeholder = { Text("Buscar por nombre") },
+                        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    if (filtered.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                if (list.isEmpty()) "No hay sedes registradas."
+                                else "No se encontraron sedes para \"$searchQuery\"",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                        }
+                    } else {
+                        LazyColumn(
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(filtered, key = { it.id }) { venue ->
+                                VenueCard(
+                                    venue = venue,
+                                    onClick = { onVenueClick(venue.id) },
+                                    onDelete = { viewModel.deleteVenue(venue.id) },
+                                    isAdmin = isAdmin
+                                )
+                            }
                         }
                     }
                 }
@@ -312,6 +340,7 @@ fun VenueDetailScreen(
     venueId: String,
     onBack:  () -> Unit,
     onEdit:  () -> Unit,
+    onNewMatch: (String) -> Unit,
     viewModel: VenueDetailViewModel = hiltViewModel()
 ) {
     val state by viewModel.venue.collectAsState()
@@ -359,7 +388,24 @@ fun VenueDetailScreen(
             }
             is UiState.Success -> {
                 val venue = (state as UiState.Success).data
-                VenueDetailContent(venue = venue, modifier = Modifier.padding(padding))
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Button(
+                        onClick = { onNewMatch(venue.id) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Armar partido aquí")
+                    }
+                    VenueDetailContent(venue = venue, modifier = Modifier.padding(horizontal = 16.dp))
+                }
             }
             else -> {}
         }

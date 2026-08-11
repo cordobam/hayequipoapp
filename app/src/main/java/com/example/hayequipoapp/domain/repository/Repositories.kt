@@ -84,3 +84,7 @@ interface PlayerReviewRepository {
     suspend fun createReview(review: PlayerReview): Result<String>
     suspend fun deleteReview(reviewId: String): Result<Unit>
 }
+
+interface UserRoleRepository {
+    suspend fun syncRole(uid: String, role: String): Result<Unit>
+}

@@ -3,6 +3,7 @@ package com.example.hayequipoapp.ui.auth
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.hayequipoapp.domain.repository.PlayerRepository
+import com.example.hayequipoapp.domain.repository.UserRoleRepository
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import com.example.hayequipoapp.data.model.Player
@@ -47,8 +48,14 @@ import com.example.hayequipoapp.data.session.SessionManager
 class AuthViewModel @Inject constructor(
     private val auth: FirebaseAuth,
     private val playerRepository: PlayerRepository,
+    private val roleRepository: UserRoleRepository,
     private val sessionManager: SessionManager
 ) : ViewModel() {
+
+    private suspend fun onPlayerResolved(player: Player) {
+        sessionManager.setPlayer(player)
+        roleRepository.syncRole(player.uid, player.role)
+    }
 
     init {
         loadExistingPlayer()
@@ -60,7 +67,7 @@ class AuthViewModel @Inject constructor(
             try {
                 val player = playerRepository.getPlayerByUid(firebaseUser.uid)
                 if (player != null) {
-                    sessionManager.setPlayer(player)
+                    onPlayerResolved(player)
                 }
             } catch (e: Exception) {
                     Log.e("AuthViewModel", "Error loading existing player",e)
@@ -93,9 +100,9 @@ class AuthViewModel @Inject constructor(
                     playerRepository.createPlayer(newPlayer)
                     // Recargar el perfil para tener el id real asignado por Firestore
                     val created = playerRepository.getPlayerByUid(user.uid) ?: newPlayer
-                    sessionManager.setPlayer(created)
+                    onPlayerResolved(created)
                 } else {
-                    sessionManager.setPlayer(existing)
+                    onPlayerResolved(existing)
                 }
                 _authState.value = UiState.Success(Unit)
             } catch (e: Exception) {
@@ -111,7 +118,7 @@ class AuthViewModel @Inject constructor(
                 auth.signInWithEmailAndPassword(email, password).await()
                 val user = auth.currentUser ?: return@launch
                 val player = playerRepository.getPlayerByUid(user.uid)
-                if (player != null) sessionManager.setPlayer(player)
+                if (player != null) onPlayerResolved(player)
                 _authState.value = UiState.Success(Unit)
 
             } catch (e: Exception) {
@@ -130,7 +137,7 @@ class AuthViewModel @Inject constructor(
                 playerRepository.createPlayer(newPlayer)
                 // Recargar el perfil para tener el id real asignado por Firestore
                 val created = playerRepository.getPlayerByUid(user.uid) ?: newPlayer
-                sessionManager.setPlayer(created)
+                onPlayerResolved(created)
                 _authState.value = UiState.Success(Unit)
             } catch (e: Exception) {
                 _authState.value = UiState.Error(e.message ?: "Error al registrarse")

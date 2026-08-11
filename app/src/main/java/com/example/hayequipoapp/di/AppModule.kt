@@ -8,6 +8,7 @@ import com.example.hayequipoapp.data.repository.PlayerRepositoryImpl
 import com.example.hayequipoapp.data.repository.PlayerReviewRepositoryImpl
 import com.example.hayequipoapp.data.repository.PlayerStatRepositoryImpl
 import com.example.hayequipoapp.data.repository.SportRepositoryImpl
+import com.example.hayequipoapp.data.repository.UserRoleRepositoryImpl
 import com.example.hayequipoapp.data.repository.VenueRepositoryImpl
 import com.example.hayequipoapp.domain.repository.FriendGroupRepository
 import com.example.hayequipoapp.domain.repository.MatchInvitationRepository
@@ -18,6 +19,7 @@ import com.example.hayequipoapp.domain.repository.PlayerReviewRepository
 import com.example.hayequipoapp.domain.repository.PlayerStatRepository
 import com.example.hayequipoapp.domain.repository.SportRepository
 import com.example.hayequipoapp.domain.repository.VenueRepository
+import com.example.hayequipoapp.domain.repository.UserRoleRepository
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import dagger.Binds
@@ -68,4 +70,7 @@ abstract class RepositoryModule {
 
     @Binds @Singleton
     abstract fun bindPlayerReviewRepository(impl: PlayerReviewRepositoryImpl): PlayerReviewRepository
+
+    @Binds @Singleton
+    abstract fun bindUserRoleRepository(impl: UserRoleRepositoryImpl): UserRoleRepository
 }
