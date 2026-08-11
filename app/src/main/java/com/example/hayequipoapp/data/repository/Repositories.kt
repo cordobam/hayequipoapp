@@ -56,6 +56,7 @@ class FriendGroupRepositoryImpl @Inject constructor(private val source: Firebase
 
 class MatchRepositoryImpl @Inject constructor(private val source: FirebaseSource) : MatchRepository {
     override fun getUpcomingMatches() = source.getUpcomingMatches()
+    override fun getPlayedMatches() = source.getPlayedMatches()
     override fun getMatchesBySport(sportId: String) = source.getMatchesBySport(sportId)
     override fun getMatchesForPlayer(playerId: String) = source.getMatchesForPlayer(playerId)
     override suspend fun getMatchById(matchId: String) = source.getMatchById(matchId)

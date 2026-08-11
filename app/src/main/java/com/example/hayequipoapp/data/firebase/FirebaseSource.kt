@@ -18,8 +18,11 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
+import java.util.Date
 import javax.inject.Inject
 import javax.inject.Singleton
+
+private const val ONE_MONTH_MILLIS = 30L * 24 * 60 * 60 * 1000
 
 @Singleton
 class FirebaseSource @Inject constructor(
@@ -142,8 +145,19 @@ class FirebaseSource @Inject constructor(
 
     fun getUpcomingMatches(): Flow<List<Match>> =
         matches
-            .whereIn("status", listOf("scheduled", "confirmed", "in_progress", "finished"))
+            .whereIn("status", listOf("scheduled", "confirmed", "in_progress"))
+            .whereGreaterThan("date", Timestamp.now())
             .orderBy("date")
+            .asFlow()
+
+    fun getPlayedMatches(): Flow<List<Match>> =
+        matches
+            .whereEqualTo("status", "finished")
+            .whereGreaterThanOrEqualTo(
+                "date",
+                Timestamp(Date(System.currentTimeMillis() - ONE_MONTH_MILLIS))
+            )
+            .orderBy("date", Query.Direction.DESCENDING)
             .asFlow()
 
     fun getMatchesBySport(sportId: String): Flow<List<Match>> =

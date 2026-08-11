@@ -1,12 +1,17 @@
 package com.example.hayequipoapp.ui.home
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -24,10 +29,12 @@ import com.example.hayequipoapp.data.model.MatchInvitation
 import com.example.hayequipoapp.data.model.Sport
 import com.example.hayequipoapp.data.model.Venue
 import com.example.hayequipoapp.data.session.CurrentPlayerResolver
+import com.example.hayequipoapp.data.session.HomeSeenStore
 import com.example.hayequipoapp.ui.common.UiState
 import com.example.hayequipoapp.ui.matches.MatchCard
 import com.example.hayequipoapp.ui.navigation.HayEquipoNavHost
 import com.example.hayequipoapp.ui.navigation.Routes
+import com.google.firebase.Timestamp
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,6 +57,7 @@ class HomeViewModel @Inject constructor(
     private val sportRepository: SportRepository,
     private val venueRepository: VenueRepository,
     private val resolver: CurrentPlayerResolver,
+    private val seenStore: HomeSeenStore,
     val sessionManager: SessionManager
 ) : ViewModel() {
 
@@ -61,6 +69,15 @@ class HomeViewModel @Inject constructor(
 
     private val _pendingInvitations = MutableStateFlow<UiState<List<MatchInvitation>>>(UiState.Loading)
     val pendingInvitations = _pendingInvitations.asStateFlow()
+
+    private val _upcomingNew = MutableStateFlow(0)
+    val upcomingNew = _upcomingNew.asStateFlow()
+
+    private val _playedNew = MutableStateFlow(0)
+    val playedNew = _playedNew.asStateFlow()
+
+    private val _invitationsNew = MutableStateFlow(0)
+    val invitationsNew = _invitationsNew.asStateFlow()
 
     private val _matchesById = MutableStateFlow<Map<String, Match>>(emptyMap())
     val matchesById = _matchesById.asStateFlow()
@@ -81,21 +98,36 @@ class HomeViewModel @Inject constructor(
     }
 
     fun load() {
+        val lastSeen = seenStore.lastSeen()
         viewModelScope.launch {
             try {
                 matchRepository.getUpcomingMatches().collect { list ->
                     val myId = resolver.id()
                     _myId.value = myId
-                    _upcomingMatches.value = UiState.Success(list.take(5))
+                    val mine = list.filter { m ->
+                        myId != null && (m.organizerId == myId || myId in m.participantIds)
+                    }
+                    _upcomingMatches.value = UiState.Success(mine.take(5))
                     _matchesById.value = list.associateBy { it.id }
-                    _myMatches.value = UiState.Success(
-                        list.filter { m ->
-                            myId != null && (m.organizerId == myId || myId in m.participantIds)
-                        }
-                    )
+                    _upcomingNew.value = mine.count { isNew(it.createdAt, lastSeen) }
                 }
             } catch (e: Exception) {
                 _upcomingMatches.value = UiState.Error(e.message ?: "Error cargando partidos")
+            }
+        }
+        viewModelScope.launch {
+            try {
+                matchRepository.getPlayedMatches().collect { list ->
+                    val myId = resolver.id() ?: _myId.value
+                    val mine = list.filter { m ->
+                        myId != null && (m.organizerId == myId || myId in m.participantIds)
+                    }
+                    _myMatches.value = UiState.Success(mine)
+                    _matchesById.value = _matchesById.value + list.associateBy { it.id }
+                    _playedNew.value = mine.count { isNew(it.updatedAt, lastSeen) }
+                }
+            } catch (e: Exception) {
+                _myMatches.value = UiState.Error(e.message ?: "Error cargando partidos")
             }
         }
         viewModelScope.launch {
@@ -103,13 +135,18 @@ class HomeViewModel @Inject constructor(
             try {
                 invitationRepository.getPendingInvitationsForPlayer(myId).collect { list ->
                     _pendingInvitations.value = UiState.Success(list)
+                    _invitationsNew.value = list.count { isNew(it.createdAt, lastSeen) }
                     resolveInvitationMatches(list)
                 }
             } catch (e: Exception) {
                 _pendingInvitations.value = UiState.Error(e.message ?: "Error cargando invitaciones")
             }
         }
+        seenStore.markSeen()
     }
+
+    private fun isNew(timestamp: Timestamp?, lastSeen: Long): Boolean =
+        timestamp != null && timestamp.seconds * 1000 > lastSeen
 
     fun joinMatch(matchId: String) {
         val me = _myId.value ?: return
@@ -261,88 +298,132 @@ fun HomeDashboard(
     val sportsById  by viewModel.sportsById.collectAsState()
     val venuesById  by viewModel.venuesById.collectAsState()
     val myId        by viewModel.myId.collectAsState()
+    val upcomingNew by viewModel.upcomingNew.collectAsState()
+    val playedNew   by viewModel.playedNew.collectAsState()
+    val invitationsNew by viewModel.invitationsNew.collectAsState()
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
 
-        Text("Mis partidos", style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(8.dp))
-
-        when (myMatches) {
-            is UiState.Loading -> CircularProgressIndicator()
-            is UiState.Error   -> Text((myMatches as UiState.Error).message, color = MaterialTheme.colorScheme.error)
-            is UiState.Success -> {
-                val list = (myMatches as UiState.Success).data
-                if (list.isEmpty()) {
-                    Text("Aún no tenés partidos", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
-                    list.forEach { match ->
-                        MatchCard(
-                            match = match,
-                            myId = myId,
-                            sportName = sportsById[match.sportId]?.name,
-                            venueName = venuesById[match.venueId]?.name,
-                            onClick = { navController.navigate(Routes.matchDetail(match.id)) },
-                            onJoin = { viewModel.joinMatch(match.id) }
-                        )
-                        Spacer(Modifier.height(8.dp))
+        ExpandableSection(title = "Invitaciones pendientes", badgeCount = invitationsNew) {
+            when (invitations) {
+                is UiState.Loading -> CircularProgressIndicator()
+                is UiState.Error   -> Text((invitations as UiState.Error).message, color = MaterialTheme.colorScheme.error)
+                is UiState.Success -> {
+                    val list = (invitations as UiState.Success).data
+                    if (list.isEmpty()) {
+                        Text("Sin invitaciones pendientes", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        list.forEach { inv ->
+                            InvitationCard(
+                                invitation = inv,
+                                matchTitle = matchesById[inv.matchId]?.title,
+                                onAccept = { viewModel.respondInvitation(inv, true) },
+                                onReject = { viewModel.respondInvitation(inv, false) }
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
                     }
                 }
+                else -> {}
             }
-            else ->{}
         }
 
-        Spacer(Modifier.height(24.dp))
-        Text("Próximos partidos", style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(8.dp))
-
-        when (matches) {
-            is UiState.Loading -> CircularProgressIndicator()
-            is UiState.Error   -> Text((matches as UiState.Error).message, color = MaterialTheme.colorScheme.error)
-            is UiState.Success -> {
-                val list = (matches as UiState.Success).data
-                if (list.isEmpty()) {
-                    Text("Sin partidos próximos", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
-                    list.forEach { match ->
-                        MatchCard(
-                            match = match,
-                            myId = myId,
-                            sportName = sportsById[match.sportId]?.name,
-                            venueName = venuesById[match.venueId]?.name,
-                            onClick = { navController.navigate(Routes.matchDetail(match.id)) },
-                            onJoin = { viewModel.joinMatch(match.id) }
-                        )
-                        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(16.dp))
+        ExpandableSection(title = "Mis partidos", badgeCount = playedNew) {
+            when (myMatches) {
+                is UiState.Loading -> CircularProgressIndicator()
+                is UiState.Error   -> Text((myMatches as UiState.Error).message, color = MaterialTheme.colorScheme.error)
+                is UiState.Success -> {
+                    val list = (myMatches as UiState.Success).data
+                    if (list.isEmpty()) {
+                        Text("No jugaste partidos este mes", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        list.forEach { match ->
+                            MatchCard(
+                                match = match,
+                                myId = myId,
+                                sportName = sportsById[match.sportId]?.name,
+                                venueName = venuesById[match.venueId]?.name,
+                                onClick = { navController.navigate(Routes.matchDetail(match.id)) },
+                                onJoin = { viewModel.joinMatch(match.id) }
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
                     }
                 }
+                else -> {}
             }
-            else ->{}
         }
 
-        Spacer(Modifier.height(24.dp))
-        Text("Invitaciones pendientes", style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(8.dp))
-
-        when (invitations) {
-            is UiState.Loading -> CircularProgressIndicator()
-            is UiState.Error   -> Text((invitations as UiState.Error).message, color = MaterialTheme.colorScheme.error)
-            is UiState.Success -> {
-                val list = (invitations as UiState.Success).data
-                if (list.isEmpty()) {
-                    Text("Sin invitaciones pendientes", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
-                    list.forEach { inv ->
-                        InvitationCard(
-                            invitation = inv,
-                            matchTitle = matchesById[inv.matchId]?.title,
-                            onAccept = { viewModel.respondInvitation(inv, true) },
-                            onReject = { viewModel.respondInvitation(inv, false) }
-                        )
-                        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(16.dp))
+        ExpandableSection(title = "Próximos partidos", badgeCount = upcomingNew) {
+            when (matches) {
+                is UiState.Loading -> CircularProgressIndicator()
+                is UiState.Error   -> Text((matches as UiState.Error).message, color = MaterialTheme.colorScheme.error)
+                is UiState.Success -> {
+                    val list = (matches as UiState.Success).data
+                    if (list.isEmpty()) {
+                        Text("Sin partidos próximos", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        list.forEach { match ->
+                            MatchCard(
+                                match = match,
+                                myId = myId,
+                                sportName = sportsById[match.sportId]?.name,
+                                venueName = venuesById[match.venueId]?.name,
+                                onClick = { navController.navigate(Routes.matchDetail(match.id)) },
+                                onJoin = { viewModel.joinMatch(match.id) }
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
                     }
                 }
+                else -> {}
             }
-            else -> {}
+        }
+    }
+}
+
+@Composable
+private fun ExpandableSection(
+    title: String,
+    badgeCount: Int,
+    initiallyExpanded: Boolean = true,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    var expanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { expanded = !expanded }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.weight(1f)
+            )
+            if (badgeCount > 0) {
+                Badge { Text(badgeCount.toString()) }
+                Spacer(Modifier.width(8.dp))
+            }
+            Icon(
+                imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                contentDescription = if (expanded) "Colapsar $title" else "Expandir $title"
+            )
+        }
+        AnimatedVisibility(visible = expanded) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                content()
+            }
         }
     }
 }
