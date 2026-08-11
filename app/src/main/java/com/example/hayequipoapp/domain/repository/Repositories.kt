@@ -49,6 +49,7 @@ interface FriendGroupRepository {
 
 interface MatchRepository {
     fun getUpcomingMatches(): Flow<List<Match>>
+    fun getPlayedMatches(): Flow<List<Match>>
     fun getMatchesBySport(sportId: String): Flow<List<Match>>
     fun getMatchesForPlayer(playerId: String): Flow<List<Match>>
     suspend fun getMatchById(matchId: String): Match?
