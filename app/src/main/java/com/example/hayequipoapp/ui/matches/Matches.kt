@@ -42,6 +42,7 @@ import com.example.hayequipoapp.data.session.CurrentPlayerResolver
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -86,6 +87,7 @@ data class PlayerReport(
 @HiltViewModel
 class MatchListViewModel @Inject constructor(
     private val matchRepository: MatchRepository,
+    private val invitationRepository: MatchInvitationRepository,
     private val resolver: CurrentPlayerResolver,
     val sessionManager: SessionManager
 ) : ViewModel() {
@@ -97,19 +99,37 @@ class MatchListViewModel @Inject constructor(
     val myId = _myId.asStateFlow()
 
     init {
-        loadMatches()
         resolveMyId()
     }
 
     private fun resolveMyId() {
-        viewModelScope.launch { _myId.value = resolver.id() }
+        viewModelScope.launch {
+            _myId.value = resolver.id()
+            loadMatches()
+        }
     }
 
     fun loadMatches() {
+        val myId = _myId.value
         viewModelScope.launch {
-            matchRepository.getUpcomingMatches().collect {
+            val flow = if (myId != null) {
+                combine(
+                    matchRepository.getUpcomingMatches(),
+                    invitationRepository.getPendingInvitationsForPlayer(myId)
+                ) { matches, invitations ->
+                    val invitedIds = invitations.mapNotNull { it.matchId }.toSet()
+                    matches.filter { m ->
+                        m.organizerId != myId &&
+                            myId !in m.participantIds &&
+                            m.id !in invitedIds
+                    }
+                }
+            } else {
+                matchRepository.getUpcomingMatches()
+            }
+            flow.collect { list ->
                 _matches.value = UiState.Success(
-                    it.sortedByDescending { m -> m.date }.take(5)
+                    list.sortedByDescending { m -> m.date }.take(5)
                 )
             }
         }
@@ -1186,7 +1206,8 @@ fun MatchCard(
             }
             val infoParts = listOfNotNull(
                 sportName?.let { "Deporte: $it" },
-                venueName?.let { "Sede: $it" }
+                venueName?.let { "Sede: $it" },
+                match.date?.let { "Fecha: ${formatDateTime(it.seconds * 1000)}" }
             )
             if (infoParts.isNotEmpty()) {
                 Text(infoParts.joinToString(" · "), style = MaterialTheme.typography.bodyMedium)
