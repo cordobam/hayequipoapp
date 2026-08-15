@@ -134,9 +134,9 @@ class HomeViewModel @Inject constructor(
             val myId = resolver.id() ?: return@launch
             try {
                 invitationRepository.getPendingInvitationsForPlayer(myId).collect { list ->
-                    _pendingInvitations.value = UiState.Success(list)
-                    _invitationsNew.value = list.count { isNew(it.createdAt, lastSeen) }
-                    resolveInvitationMatches(list)
+                    val valid = filterExpiredInvitations(list)
+                    _pendingInvitations.value = UiState.Success(valid)
+                    _invitationsNew.value = valid.count { isNew(it.createdAt, lastSeen) }
                 }
             } catch (e: Exception) {
                 _pendingInvitations.value = UiState.Error(e.message ?: "Error cargando invitaciones")
@@ -156,16 +156,21 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private fun resolveInvitationMatches(invitations: List<MatchInvitation>) {
-        viewModelScope.launch {
-            invitations.mapNotNull { it.matchId }.distinct().forEach { matchId ->
-                if (matchId !in _matchesById.value) {
-                    matchRepository.getMatchById(matchId)?.let { m ->
-                        _matchesById.value = _matchesById.value + (m.id to m)
-                    }
+    private suspend fun filterExpiredInvitations(invitations: List<MatchInvitation>): List<MatchInvitation> {
+        val result = mutableListOf<MatchInvitation>()
+        for (inv in invitations) {
+            val match = _matchesById.value[inv.matchId]
+                ?: matchRepository.getMatchById(inv.matchId)?.also { m ->
+                    _matchesById.value = _matchesById.value + (m.id to m)
                 }
+            val expired = match?.date?.let { it.seconds * 1000 < System.currentTimeMillis() } == true
+            if (expired) {
+                invitationRepository.updateInvitationStatus(inv.id, "rejected")
+            } else {
+                result.add(inv)
             }
         }
+        return result
     }
 
     fun respondInvitation(inv: MatchInvitation, accepted: Boolean) {
