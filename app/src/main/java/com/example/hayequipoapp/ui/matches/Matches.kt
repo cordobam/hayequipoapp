@@ -319,13 +319,24 @@ class MatchDetailViewModel @Inject constructor(
                 matchStatRepository.createOrUpdateMatchStat(stat)
                     .onFailure { e -> statsFailed = true; Log.e(TAG, "Error guardando MatchStat de ${d.playerId}", e) }
 
+                val existing = _matchStats.value[d.playerId]
+                _matchStats.value = _matchStats.value + (d.playerId to stat)
+
                 val prev = playerStatRepository.getPlayerStatBySport(d.playerId, sportId)
-                val totalReviews = (prev?.totalReviews ?: 0) + if (d.rating > 0) 1 else 0
-                val avg = if (totalReviews > 0 && d.rating > 0) {
-                    val prevAvg = prev?.averageReliability ?: 0.0
-                    val prevCount = prev?.totalReviews ?: 0
-                    ((prevAvg * prevCount) + d.rating) / totalReviews
-                } else prev?.averageReliability ?: 0.0
+                val alreadyCounted = existing != null
+
+                val oldGoals = existing?.stats?.get("goles") ?: 0
+                val oldAssists = existing?.stats?.get("asistencias") ?: 0
+                val oldRating = existing?.rating ?: 0.0
+
+                val oldReviews = if (alreadyCounted && oldRating > 0) 1 else 0
+                val newReviews = if (d.rating > 0) 1 else 0
+                val totalReviews = (prev?.totalReviews ?: 0) - oldReviews + newReviews
+                val prevAvg = prev?.averageReliability ?: 0.0
+                val prevCount = prev?.totalReviews ?: 0
+                val avg = if (totalReviews > 0) {
+                    ((prevAvg * prevCount) - oldRating + d.rating) / totalReviews
+                } else 0.0
 
                 val won = teamIndex >= 0 && winningIndex == teamIndex
                 val lost = teamIndex >= 0 && winningIndex != null && teamIndex != winningIndex
@@ -333,11 +344,11 @@ class MatchDetailViewModel @Inject constructor(
                     id = "${d.playerId}_$sportId",
                     playerId = d.playerId,
                     sportId = sportId,
-                    matchesPlayed = (prev?.matchesPlayed ?: 0) + 1,
-                    matchesWon = (prev?.matchesWon ?: 0) + if (won) 1 else 0,
-                    matchesLost = (prev?.matchesLost ?: 0) + if (lost) 1 else 0,
-                    goals = (prev?.goals ?: 0) + d.goals,
-                    assists = (prev?.assists ?: 0) + d.assists,
+                    matchesPlayed = (prev?.matchesPlayed ?: 0) + if (alreadyCounted) 0 else 1,
+                    matchesWon = (prev?.matchesWon ?: 0) + if (alreadyCounted) 0 else (if (won) 1 else 0),
+                    matchesLost = (prev?.matchesLost ?: 0) + if (alreadyCounted) 0 else (if (lost) 1 else 0),
+                    goals = (prev?.goals ?: 0) - oldGoals + d.goals,
+                    assists = (prev?.assists ?: 0) - oldAssists + d.assists,
                     averageReliability = avg,
                     totalReviews = totalReviews,
                     updatedAt = null

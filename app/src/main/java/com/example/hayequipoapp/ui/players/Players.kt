@@ -462,21 +462,26 @@ private fun StatsSection(stats: List<PlayerStat>) {
     stats.forEach { stat ->
         Card(modifier = Modifier.fillMaxWidth()) {
             Row(
-                modifier = Modifier.padding(12.dp),
-                horizontalArrangement = Arrangement.SpaceAround
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                StatItem("Partidos", stat.matchesPlayed.toString())
-                StatItem("Ganados",  stat.matchesWon.toString())
-                StatItem("Goles",    stat.goals.toString())
-                StatItem("Assists",  stat.assists.toString())
+                StatItem("Partidos", stat.matchesPlayed.toString(), Modifier.weight(1f))
+                StatItem("Ganados",  stat.matchesWon.toString(), Modifier.weight(1f))
+                StatItem("Goles",    stat.goals.toString(), Modifier.weight(1f))
+                StatItem("Asistencias", stat.assists.toString(), Modifier.weight(1f))
             }
         }
     }
 }
 
 @Composable
-private fun StatItem(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+private fun StatItem(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
         Text(value, style = MaterialTheme.typography.headlineMedium)
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
