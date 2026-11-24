@@ -20,14 +20,17 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.util.Log
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.credentials.CredentialManager
@@ -42,6 +45,7 @@ import com.example.hayequipoapp.ui.theme.GreenField
 import kotlinx.coroutines.launch
 
 import com.example.hayequipoapp.data.session.SessionManager
+import com.example.hayequipoapp.R
 
 
 @HiltViewModel
@@ -272,6 +276,20 @@ fun LoginScreen(
         verticalArrangement   = Arrangement.Center,
         horizontalAlignment   = Alignment.CenterHorizontally
     ) {
+        Surface(
+            color = GreenField,
+            shape = CircleShape,
+            modifier = Modifier.size(88.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Image(
+                    painter = painterResource(R.drawable.ic_launcher_foreground),
+                    contentDescription = null,
+                    modifier = Modifier.size(76.dp)
+                )
+            }
+        }
+        Spacer(Modifier.height(12.dp))
         Text(
             text  = "HayEquipo",
             style = MaterialTheme.typography.displayLarge,
